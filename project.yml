@@ -8,7 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    DEVELOPMENT_TEAM: ""           # your team id, or set in Xcode signing tab
+    DEVELOPMENT_TEAM: 22LKXXRTUL
     CODE_SIGN_STYLE: Automatic
 
 packages:
@@ -55,6 +55,7 @@ targets:
     sources:
       - Sources/Widget
       - Sources/Core/Snapshot.swift   # shared across the process boundary
+      - Sources/Core/Intents.swift    # intents visible to both targets, run in app process
     entitlements:
       path: RoadieWidget.entitlements
       properties:

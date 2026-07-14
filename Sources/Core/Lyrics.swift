@@ -102,8 +102,8 @@ struct LRCLibClient {
     struct Query {
         var track: String
         var artist: String
-        var album: String?
-        var duration: TimeInterval?
+        var album: String? = nil
+        var duration: TimeInterval? = nil
     }
 
     func fetch(_ q: Query) async throws -> Lyrics? {

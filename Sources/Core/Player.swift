@@ -13,8 +13,8 @@ final class Player: NSObject, ObservableObject {
         var url: URL
         var title: String
         var artist: String
-        var album: String?
-        var artwork: UIImage?
+        var album: String? = nil
+        var artwork: UIImage? = nil
         /// SponsorBlock segments, seconds. Playback jumps to `end` on entering one.
         var skipSegments: [(start: TimeInterval, end: TimeInterval)] = []
         /// Set when the URL is a security-scoped bookmark resolution and must be released.
@@ -68,6 +68,17 @@ final class Player: NSObject, ObservableObject {
                          duration: 0, artwork: item.artwork),
             lyrics: lyrics)
         play()
+        snapshot()
+    }
+
+    /// Widget state. Written on track change and play/pause flips only — never per tick,
+    /// widget reloads are budgeted.
+    private func snapshot() {
+        PlaybackSnapshot.write(
+            current.map { PlaybackSnapshot(title: $0.title, artist: $0.artist,
+                                           isPlaying: isPlaying, hasArtwork: $0.artwork != nil) }
+                ?? PlaybackSnapshot(title: "Nothing playing", artist: "", isPlaying: false, hasArtwork: false),
+            artwork: current?.artwork)
     }
 
     func play() { vlc.play() }
@@ -107,9 +118,17 @@ extension Player: VLCMediaPlayerDelegate {
 
     nonisolated func mediaPlayerStateChanged(_ notification: Notification!) {
         Task { @MainActor in
+            let was = isPlaying
             isPlaying = vlc.isPlaying
             syncNowPlaying()
+            if was != isPlaying { snapshot() }
             if vlc.state == .ended { onNext?() }
         }
     }
+}
+
+extension Player: PlaybackControlling {
+    func toggle() { isPlaying ? pause() : play() }
+    func nextTrack() { onNext?() }
+    func previousTrack() { onPrevious?() }
 }
