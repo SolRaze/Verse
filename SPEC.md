@@ -18,9 +18,16 @@ no library database beyond what's needed to find a file again.
 
 ## 1. Playback engine
 
-Use **MobileVLCKit** as the single engine for everything. Not AVPlayer, not a two-engine split.
-VLC decodes mp3, aac, alac, flac, opus, ogg, wav, aiff, wma, ape, m4a, mp4, mkv, avi, mov, webm,
-hls, and the long tail. One engine means one now-playing integration and one set of bugs.
+**MobileVLCKit** is the engine for everything except one carve-out. VLC decodes mp3, aac, alac,
+flac, opus, ogg, wav, aiff, wma, ape, m4a, mp4, mkv, avi, mov, webm, hls, and the long tail. One
+engine means one now-playing integration and one set of bugs.
+
+The carve-out: **video that can reach the car screen goes through AVPlayer**
+(`Sources/Core/AirPlayVideo.swift`, already written). iOS 26's "AirPlay video in the car" works
+only via AVPlayer external playback — VLC decodes locally and cannot AirPlay video. Routing rule
+is `AirPlayVideoPlayer.canAirPlay(url)`: AVPlayer-compatible containers (mp4/m4v/mov/HLS — every
+extracted YouTube stream qualifies) use the AVPlayer path with an `AirPlayButton` in the UI;
+everything else uses VLC on the phone screen. Do not widen the AVPlayer path beyond this.
 
 `Sources/Core/Player.swift` has the wrapper. Requirements:
 
@@ -78,6 +85,19 @@ basename matches", and if none matches, keep it unattached and let them pick.
   types + a share extension is optional — start with paste).
 - Extraction fails often and loudly. Surface the error. Never crash, never silently show a blank
   player.
+
+## 4b. Video on the car screen
+
+Constraints live in README. Implementation is done (`AirPlayVideo.swift`); what's left is UI:
+
+- When the current item passes `canAirPlay`, show `AirPlayButton` on the player screen. Tapping
+  it lists the car's display *if the head unit supports AirPlay video in the car* — the system
+  decides, we just show the picker.
+- `isExternal` publishes when video moved to the car; dim the phone surface and show a "playing
+  on car display" placeholder.
+- Parked-only enforcement is the system's job. Write no speed checks.
+- Do NOT build toward the iOS 27 CarPlay video-app entitlement (browse UI on the car). It needs
+  Apple's per-app approval, which a sideloaded YouTube extractor will not get.
 
 ## 5. CarPlay — the only part that is subtle
 
