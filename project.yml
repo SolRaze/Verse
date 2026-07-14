@@ -60,6 +60,9 @@ targets:
   RoadieWidget:
     type: app-extension
     platform: iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sol.Roadie.Widget   # appex ids must nest under the app's
     sources:
       - Sources/Widget
       - Sources/Core/Snapshot.swift   # shared across the process boundary
@@ -78,6 +81,9 @@ targets:
   RoadieTests:
     type: bundle.unit-test
     platform: iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     sources: [Tests]
     dependencies:
       - target: Roadie
