@@ -2,56 +2,8 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-// MARK: - Intents
-//
-// AudioPlaybackIntent, not AppIntent. The difference is load-bearing: a plain widget intent runs
-// inside the widget extension process, which has no background-audio entitlement and cannot
-// activate an AVAudioSession — the tap would do nothing. Conforming to AudioPlaybackIntent makes
-// the system launch the *app* in the background to perform it, with audio permitted.
-
-struct TogglePlaybackIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Play or Pause"
-
-    func perform() async throws -> some IntentResult {
-        await PlaybackBridge.shared.toggle()
-        return .result()
-    }
-}
-
-struct NextTrackIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Next Track"
-
-    func perform() async throws -> some IntentResult {
-        await PlaybackBridge.shared.next()
-        return .result()
-    }
-}
-
-struct PreviousTrackIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Previous Track"
-
-    func perform() async throws -> some IntentResult {
-        await PlaybackBridge.shared.previous()
-        return .result()
-    }
-}
-
-/// The intent runs in the app process, so it can reach the live Player directly.
-/// Set `PlaybackBridge.shared.player` when the app builds its Player.
-@MainActor
-final class PlaybackBridge {
-    static let shared = PlaybackBridge()
-    weak var player: Player?
-
-    func toggle() {
-        guard let player else { return }
-        player.isPlaying ? player.pause() : player.play()
-    }
-    func next() { player?.onNext?() }
-    func previous() { player?.onPrevious?() }
-}
-
-// MARK: - Widget
+// Intents live in Sources/Core/Intents.swift, shared with the app target — they must run in the
+// app process (AudioPlaybackIntent) but be visible here for the Buttons.
 
 struct RoadieEntry: TimelineEntry {
     let date: Date
