@@ -1,0 +1,50 @@
+name: Roadie
+options:
+  bundleIdPrefix: com.sol          # change to yours
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""           # your team id, or set in Xcode signing tab
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  YouTubeKit:
+    url: https://github.com/alexeichhorn/YouTubeKit
+    from: 0.2.0
+
+targets:
+  Roadie:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    dependencies:
+      - package: YouTubeKit
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Roadie
+        UILaunchScreen: {}
+        # Background audio. Without this there is no lock screen and no CarPlay.
+        UIBackgroundModes: [audio]
+        # Let Files.app and a Mac drop media straight into the app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Media
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.audio, public.movie, public.data]
+        NSAppTransportSecurity:
+          # YouTube/LRCLIB/SponsorBlock are all https; VLC may hit http media in the wild.
+          NSAllowsArbitraryLoads: true
+
+  RoadieTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: Roadie
