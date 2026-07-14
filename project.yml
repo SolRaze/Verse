@@ -21,9 +21,16 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Sources
+      - Sources/App
+      - Sources/Core
     dependencies:
       - package: YouTubeKit
+      - target: RoadieWidget
+        embed: true
+    entitlements:
+      path: Roadie.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sol.roadie]
     info:
       path: Info.plist
       properties:
@@ -41,6 +48,23 @@ targets:
         NSAppTransportSecurity:
           # YouTube/LRCLIB/SponsorBlock are all https; VLC may hit http media in the wild.
           NSAllowsArbitraryLoads: true
+
+  RoadieWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Sources/Widget
+      - Sources/Core/Snapshot.swift   # shared across the process boundary
+    entitlements:
+      path: RoadieWidget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sol.roadie]
+    info:
+      path: WidgetInfo.plist
+      properties:
+        CFBundleDisplayName: Roadie
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
   RoadieTests:
     type: bundle.unit-test

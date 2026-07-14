@@ -103,6 +103,41 @@ Known rough edges — test in the actual car, not the simulator:
 There is no `CPTemplateApplicationSceneDelegate` in this project. If you find yourself writing one,
 you have gone down the entitlement path — stop.
 
+## 6. Widget, Live Activity, lock screen
+
+Three surfaces, three different capabilities. Do not confuse them.
+
+**Widget — no video, ever.** A widget is a static SwiftUI snapshot the system renders ahead of
+time. There is no process running while the user looks at it, no render loop, no `AVPlayer`. This
+is not routable-around.
+
+**Widget — audio control, yes.** `Sources/Widget/RoadieWidget.swift` is written. The intents
+conform to **`AudioPlaybackIntent`**, not `AppIntent`, and that distinction is the whole feature:
+a plain widget intent runs inside the widget extension, which has no background-audio entitlement
+and cannot activate an `AVAudioSession` — the button would do nothing. `AudioPlaybackIntent` makes
+the system launch the *app* in the background to perform it, with audio permitted. If you ever
+"simplify" these to `AppIntent`, the widget silently stops working.
+
+Left to wire:
+- Set `PlaybackBridge.shared.player` when the app constructs its `Player`.
+- Call `PlaybackSnapshot.write(...)` on track change and on play/pause. **Not per lyric line** —
+  widget timeline reloads are budgeted at a few dozen per day, and per-line reloads get throttled
+  to nothing within one song.
+- Create the App Group `group.com.sol.roadie` on both the app and the widget App IDs. If the group
+  is missing, the container URL is nil and the widget renders empty with no error.
+
+**Live Activity — this is where per-line lyrics go.** ActivityKit, updated from the app via
+`activity.update()` while background audio keeps the app alive. Lands on the Lock Screen (and the
+Dynamic Island if the device has one). Not yet built; this is the right home for karaoke lyrics
+outside the car.
+
+**Lock screen now-playing — already done, free.** `NowPlaying.swift` publishes the lyric-artwork
+image to `MPNowPlayingInfoCenter`, so the lock screen gets the same big synced lyrics the car does.
+No extra work.
+
+**CarPlay does not show third-party widgets.** The CarPlay dashboard is Apple's; there is no
+public API. The Now Playing screen remains the entire CarPlay surface.
+
 ## Verification
 
 Non-negotiable, because this is a driving app and I can't debug it at 70mph:
