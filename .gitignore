@@ -1,0 +1,6 @@
+Pods/
+*.xcodeproj
+*.xcworkspace
+Info.plist
+.DS_Store
+DerivedData/
