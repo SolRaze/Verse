@@ -8,13 +8,19 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    DEVELOPMENT_TEAM: 22LKXXRTUL
+    DEVELOPMENT_TEAM: J7C26745B5
     CODE_SIGN_STYLE: Automatic
 
 packages:
   YouTubeKit:
     url: https://github.com/alexeichhorn/YouTubeKit
     from: 0.2.0
+  # Community SPM repackage of VLCKit 3.6.0 — the official CocoaPods binary lives on
+  # download.videolan.org, which this network's upstream filter blocks outright. Binary is
+  # checksum-pinned in the package manifest and fetched from GitHub releases.
+  VLCKitSPM:
+    url: https://github.com/tylerjonesio/vlckit-spm
+    exactVersion: 3.6.0
 
 targets:
   Roadie:
@@ -25,6 +31,8 @@ targets:
       - Sources/Core
     dependencies:
       - package: YouTubeKit
+      - package: VLCKitSPM
+        product: VLCKitSPM
       - target: RoadieWidget
         embed: true
     entitlements:

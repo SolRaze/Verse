@@ -35,7 +35,7 @@ enum YouTubeSource {
 
         return Extracted(streamURL: stream.url,
                          title: meta?.title ?? "YouTube",
-                         author: meta?.channelName ?? "",
+                         author: "YouTube",  // YouTubeKit metadata has no channel field
                          skipSegments: segments)
     }
 
