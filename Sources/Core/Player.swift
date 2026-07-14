@@ -1,7 +1,11 @@
 import AVFoundation
 import Combine
-import MobileVLCKit
 import UIKit
+#if canImport(MobileVLCKit)
+import MobileVLCKit
+#elseif canImport(VLCKit)
+import VLCKit          // same API; SPM repackage ships the unified VLCKit module
+#endif
 
 /// One engine for everything: local files of any container/codec, and extracted YouTube streams.
 ///

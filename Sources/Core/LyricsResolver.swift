@@ -19,7 +19,9 @@ enum LyricsResolver {
             return LRCParser.parse(cached)
         }
 
-        if let raw = sidecar(for: mediaURL) ?? (await embedded(in: mediaURL)) {
+        var found = sidecar(for: mediaURL)
+        if found == nil { found = await embedded(in: mediaURL) }
+        if let raw = found {
             try? raw.write(to: cacheFile, atomically: true, encoding: .utf8)
             return LRCParser.parse(raw)
         }

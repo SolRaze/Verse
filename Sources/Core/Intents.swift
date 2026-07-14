@@ -18,25 +18,25 @@ final class PlaybackBridge {
 }
 
 struct TogglePlaybackIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Play or Pause"
+    static let title: LocalizedStringResource = "Play or Pause"
     func perform() async throws -> some IntentResult {
-        await PlaybackBridge.shared.controls?.toggle()
+        await MainActor.run { PlaybackBridge.shared.controls?.toggle() }
         return .result()
     }
 }
 
 struct NextTrackIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Next Track"
+    static let title: LocalizedStringResource = "Next Track"
     func perform() async throws -> some IntentResult {
-        await PlaybackBridge.shared.controls?.nextTrack()
+        await MainActor.run { PlaybackBridge.shared.controls?.nextTrack() }
         return .result()
     }
 }
 
 struct PreviousTrackIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Previous Track"
+    static let title: LocalizedStringResource = "Previous Track"
     func perform() async throws -> some IntentResult {
-        await PlaybackBridge.shared.controls?.previousTrack()
+        await MainActor.run { PlaybackBridge.shared.controls?.previousTrack() }
         return .result()
     }
 }
