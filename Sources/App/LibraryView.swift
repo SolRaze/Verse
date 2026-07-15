@@ -46,7 +46,7 @@ struct LibraryView: View {
                     .onDelete { library.remove(at: $0) }
                 }
             }
-            .navigationTitle("Roadie")
+            .navigationTitle("Verse")
             .toolbar {
                 Button { showingImporter = true } label: { Image(systemName: "plus") }
             }

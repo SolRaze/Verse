@@ -1,4 +1,4 @@
-# Roadie — build brief
+# Verse — build brief
 
 Target: iPhone 17e, iOS 26. Swift 6, SwiftUI. Sideloaded, single user (me). No App Store, no
 accounts, no analytics, no onboarding, no settings screen unless a setting is load-bearing.
@@ -48,7 +48,7 @@ everything else uses VLC on the phone screen. Do not widen the AVPlayer path bey
 - Set `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace` in Info.plist so files can be
   dropped straight into the app's Documents folder from Files.app or a Mac.
 - Register document types / `CFBundleDocumentTypes` broadly (`public.audio`, `public.movie`,
-  `public.data`) so "Open in Roadie" appears in the share sheet.
+  `public.data`) so "Open in Verse" appears in the share sheet.
 - Library persistence: a single `Codable` array of items written to a JSON file. Not Core Data,
   not SwiftData, not SQLite. It's a personal library, it fits in memory.
 
@@ -131,7 +131,7 @@ Three surfaces, three different capabilities. Do not confuse them.
 time. There is no process running while the user looks at it, no render loop, no `AVPlayer`. This
 is not routable-around.
 
-**Widget — audio control, yes.** `Sources/Widget/RoadieWidget.swift` is written. The intents
+**Widget — audio control, yes.** `Sources/Widget/VerseWidget.swift` is written. The intents
 conform to **`AudioPlaybackIntent`**, not `AppIntent`, and that distinction is the whole feature:
 a plain widget intent runs inside the widget extension, which has no background-audio entitlement
 and cannot activate an `AVAudioSession` — the button would do nothing. `AudioPlaybackIntent` makes
@@ -143,7 +143,7 @@ Left to wire:
 - Call `PlaybackSnapshot.write(...)` on track change and on play/pause. **Not per lyric line** —
   widget timeline reloads are budgeted at a few dozen per day, and per-line reloads get throttled
   to nothing within one song.
-- Create the App Group `group.com.sol.roadie` on both the app and the widget App IDs. If the group
+- Create the App Group `group.com.sol.verse` on both the app and the widget App IDs. If the group
   is missing, the container URL is nil and the widget renders empty with no error.
 
 **Live Activity — this is where per-line lyrics go.** ActivityKit, updated from the app via

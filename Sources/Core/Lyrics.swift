@@ -91,7 +91,7 @@ enum LRCParser {
 /// https://lrclib.net/docs — no auth, no key. Asks callers to send a real User-Agent.
 struct LRCLibClient {
     var session: URLSession = .shared
-    var userAgent = "Roadie/1.0 (personal media player)"
+    var userAgent = "Verse/1.0 (personal media player)"
 
     private struct Response: Decodable {
         let syncedLyrics: String?

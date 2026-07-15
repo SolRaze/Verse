@@ -1,4 +1,4 @@
-name: Roadie
+name: Verse
 options:
   bundleIdPrefix: com.sol          # change to yours
   deploymentTarget:
@@ -23,26 +23,27 @@ packages:
     exactVersion: 3.6.0
 
 targets:
-  Roadie:
+  Verse:
     type: application
     platform: iOS
     sources:
       - Sources/App
       - Sources/Core
+      - Assets
     dependencies:
       - package: YouTubeKit
       - package: VLCKitSPM
         product: VLCKitSPM
-      - target: RoadieWidget
+      - target: VerseWidget
         embed: true
     entitlements:
-      path: Roadie.entitlements
+      path: Verse.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.sol.roadie]
+        com.apple.security.application-groups: [group.com.sol.verse]
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: Roadie
+        CFBundleDisplayName: Verse
         UILaunchScreen: {}
         # Background audio. Without this there is no lock screen and no CarPlay.
         UIBackgroundModes: [audio]
@@ -57,28 +58,28 @@ targets:
           # YouTube/LRCLIB/SponsorBlock are all https; VLC may hit http media in the wild.
           NSAllowsArbitraryLoads: true
 
-  RoadieWidget:
+  VerseWidget:
     type: app-extension
     platform: iOS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sol.Roadie.Widget   # appex ids must nest under the app's
+        PRODUCT_BUNDLE_IDENTIFIER: com.sol.Verse.Widget   # appex ids must nest under the app's
     sources:
       - Sources/Widget
       - Sources/Core/Snapshot.swift   # shared across the process boundary
       - Sources/Core/Intents.swift    # intents visible to both targets, run in app process
     entitlements:
-      path: RoadieWidget.entitlements
+      path: VerseWidget.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.sol.roadie]
+        com.apple.security.application-groups: [group.com.sol.verse]
     info:
       path: WidgetInfo.plist
       properties:
-        CFBundleDisplayName: Roadie
+        CFBundleDisplayName: Verse
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
-  RoadieTests:
+  VerseTests:
     type: bundle.unit-test
     platform: iOS
     settings:
@@ -86,4 +87,4 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     sources: [Tests]
     dependencies:
-      - target: Roadie
+      - target: Verse
