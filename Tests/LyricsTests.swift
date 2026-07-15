@@ -1,5 +1,5 @@
 import XCTest
-@testable import Roadie
+@testable import Verse
 
 /// Placeholder text only — the parser doesn't care what the words are.
 final class LyricsTests: XCTestCase {

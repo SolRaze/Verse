@@ -5,31 +5,31 @@ import WidgetKit
 // Intents live in Sources/Core/Intents.swift, shared with the app target — they must run in the
 // app process (AudioPlaybackIntent) but be visible here for the Buttons.
 
-struct RoadieEntry: TimelineEntry {
+struct VerseEntry: TimelineEntry {
     let date: Date
     let snapshot: PlaybackSnapshot?
     let artwork: UIImage?
 }
 
-struct RoadieProvider: TimelineProvider {
-    func placeholder(in _: Context) -> RoadieEntry {
-        RoadieEntry(date: .now, snapshot: nil, artwork: nil)
+struct VerseProvider: TimelineProvider {
+    func placeholder(in _: Context) -> VerseEntry {
+        VerseEntry(date: .now, snapshot: nil, artwork: nil)
     }
-    func getSnapshot(in _: Context, completion: @escaping (RoadieEntry) -> Void) {
+    func getSnapshot(in _: Context, completion: @escaping (VerseEntry) -> Void) {
         completion(entry())
     }
     /// Never-refresh policy: the app pushes updates via WidgetCenter on track change and on
     /// play/pause. A polling timeline would just burn the reload budget for nothing.
-    func getTimeline(in _: Context, completion: @escaping (Timeline<RoadieEntry>) -> Void) {
+    func getTimeline(in _: Context, completion: @escaping (Timeline<VerseEntry>) -> Void) {
         completion(Timeline(entries: [entry()], policy: .never))
     }
-    private func entry() -> RoadieEntry {
-        RoadieEntry(date: .now, snapshot: PlaybackSnapshot.read(), artwork: PlaybackSnapshot.readArtwork())
+    private func entry() -> VerseEntry {
+        VerseEntry(date: .now, snapshot: PlaybackSnapshot.read(), artwork: PlaybackSnapshot.readArtwork())
     }
 }
 
-struct RoadieWidgetView: View {
-    var entry: RoadieEntry
+struct VerseWidgetView: View {
+    var entry: VerseEntry
 
     var body: some View {
         HStack(spacing: 12) {
@@ -63,13 +63,13 @@ struct RoadieWidgetView: View {
 }
 
 @main
-struct RoadieWidget: Widget {
+struct VerseWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "RoadieNowPlaying", provider: RoadieProvider()) {
-            RoadieWidgetView(entry: $0)
+        StaticConfiguration(kind: "VerseNowPlaying", provider: VerseProvider()) {
+            VerseWidgetView(entry: $0)
         }
         .configurationDisplayName("Now Playing")
-        .description("Controls whatever Roadie is playing.")
+        .description("Controls whatever Verse is playing.")
         .supportedFamilies([.systemMedium])
     }
 }

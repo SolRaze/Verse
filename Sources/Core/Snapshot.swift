@@ -13,7 +13,7 @@ struct PlaybackSnapshot: Codable, Equatable {
     var isPlaying: Bool
     var hasArtwork: Bool
 
-    static let appGroup = "group.com.sol.roadie"   // must match project.yml + both targets' entitlements
+    static let appGroup = "group.com.sol.verse"   // must match project.yml + both targets' entitlements
 
     private static var container: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)

@@ -1,4 +1,4 @@
-# Roadie
+# Verse
 
 Personal media player for iPhone (17e, iOS 26). Sideload-only. Plays anything, shows synced
 lyrics, streams YouTube ad-free, and puts all of it on the CarPlay Now Playing screen.
@@ -31,7 +31,7 @@ aftermarket head unit that supports the feature.
 appears on the CarPlay Now Playing screen automatically. Transport controls, scrubber, metadata,
 and artwork all work. That is the entire CarPlay surface for this project, and it is enough.
 
-**The lyrics trick:** CarPlay renders the now-playing artwork large. Roadie renders the current
+**The lyrics trick:** CarPlay renders the now-playing artwork large. Verse renders the current
 synced-lyric window (previous / current / next lines) into a `UIImage` and publishes that as
 `MPMediaItemArtwork`, refreshed on each line change. Result: big synced lyrics on the car screen
 with zero entitlements. See `Sources/Core/NowPlaying.swift`.
@@ -49,10 +49,10 @@ with zero entitlements. See `Sources/Core/NowPlaying.swift`.
 
 ```sh
 brew install xcodegen cocoapods
-cd ~/Projects/Roadie
+cd ~/Projects/Verse
 xcodegen generate
 pod install
-open Roadie.xcworkspace
+open Verse.xcworkspace
 ```
 
 Set your team + bundle id in `project.yml` before generating.
