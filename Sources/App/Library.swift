@@ -32,23 +32,60 @@ struct LibraryItem: Codable, Identifiable, Hashable {
 @MainActor
 final class LibraryStore: ObservableObject {
     @Published private(set) var items: [LibraryItem] = []
+    /// User-created folders that may hold no items yet — the derived tree can't represent an
+    /// empty folder, so these are persisted alongside the items.
+    @Published private(set) var customFolders: [[String]] = []
     /// Bumped when background artwork extraction finishes, so rows re-render with covers.
     @Published private(set) var artworkVersion = 0
 
-    private var file: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("library.json")
-    }
+    private var dir: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
+    private var file: URL { dir.appendingPathComponent("library.json") }
+    private var foldersFile: URL { dir.appendingPathComponent("folders.json") }
 
     init() {
         if let data = try? Data(contentsOf: file),
            let saved = try? JSONDecoder().decode([LibraryItem].self, from: data) {
             items = saved
         }
+        if let data = try? Data(contentsOf: foldersFile),
+           let saved = try? JSONDecoder().decode([[String]].self, from: data) {
+            customFolders = saved
+        }
     }
 
     private func save() {
         try? JSONEncoder().encode(items).write(to: file, options: .atomic)
+        try? JSONEncoder().encode(customFolders).write(to: foldersFile, options: .atomic)
+    }
+
+    // MARK: - Organizing
+
+    /// Create an empty folder under `parent`. No-op if it already exists.
+    func createFolder(named name: String, in parent: [String]) {
+        let clean = name.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        let path = parent + [clean]
+        if !customFolders.contains(path), children(of: parent).folders.firstIndex(of: clean) == nil {
+            customFolders.append(path)
+            save()
+        }
+    }
+
+    /// Move an item into a different folder path.
+    func move(_ item: LibraryItem, to path: [String]) {
+        guard let i = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[i].folders = path
+        save()
+    }
+
+    /// Every folder path in the library (derived from items + custom), for a move picker.
+    func allFolders() -> [[String]] {
+        var set = Set<[String]>()
+        for item in items where !item.folders.isEmpty {
+            for depth in 1...item.folders.count { set.insert(Array(item.folders.prefix(depth))) }
+        }
+        customFolders.forEach { set.insert($0) }
+        return set.sorted { $0.joined(separator: "/") < $1.joined(separator: "/") }
     }
 
     private static let videoExtensions: Set<String> =
@@ -146,6 +183,10 @@ final class LibraryStore: ObservableObject {
                 subfolders.insert(item.folders[path.count])   // next component down
             }
         }
+        // Custom (possibly empty) folders show up too.
+        for f in customFolders where f.starts(with: path) && f.count > path.count {
+            subfolders.insert(f[path.count])
+        }
         let ordered = subfolders.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         return (ordered, here.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending })
     }
@@ -176,6 +217,7 @@ final class LibraryStore: ObservableObject {
     /// Delete a whole folder subtree.
     func removeFolder(_ path: [String]) {
         items.removeAll { $0.folders.starts(with: path) }
+        customFolders.removeAll { $0.starts(with: path) }
         save()
     }
 
