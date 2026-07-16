@@ -269,38 +269,48 @@ private struct FolderView: View {
     @State private var editMode: EditMode = .inactive
     let path: [String]
 
-    var body: some View {
-        let child = library.children(of: path)
-        List(selection: $selection) {
-            ForEach(child.folders, id: \.self) { name in
-                NavigationLink(value: FolderPath(path + [name])) {
-                    FolderRow(name: name, count: library.descendants(of: path + [name]).count)
-                }
-                .swipeActions {
-                    Button(role: .destructive) { library.removeFolder(path + [name]) } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
-                .contextMenu {
-                    FolderContextMenu(path: path + [name], renamingFolder: $renamingFolder,
-                                      folderNewName: $folderNewName, newFolderParent: $newFolderParent,
-                                      moveRequest: $moveRequest)
+    @ViewBuilder private func rows(_ child: (folders: [String], items: [LibraryItem])) -> some View {
+        ForEach(child.folders, id: \.self) { name in
+            NavigationLink(value: FolderPath(path + [name])) {
+                FolderRow(name: name, count: library.descendants(of: path + [name]).count)
+            }
+            .swipeActions {
+                Button(role: .destructive) { library.removeFolder(path + [name]) } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
-            ForEach(child.items) { item in
-                Button { coordinator.play(item, in: child.items) } label: { ItemRow(item: item) }
-                    .tag(item.id)
-                    .tint(.primary)
-                    .swipeActions {
-                        Button(role: .destructive) { library.remove(item) } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+            .contextMenu {
+                FolderContextMenu(path: path + [name], renamingFolder: $renamingFolder,
+                                  folderNewName: $folderNewName, newFolderParent: $newFolderParent,
+                                  moveRequest: $moveRequest)
+            }
+        }
+        ForEach(child.items) { item in
+            Button { coordinator.play(item, in: child.items) } label: { ItemRow(item: item) }
+                .tag(item.id)
+                .tint(.primary)
+                .swipeActions {
+                    Button(role: .destructive) { library.remove(item) } label: {
+                        Label("Delete", systemImage: "trash")
                     }
-                    .contextMenu {
-                        ItemContextMenu(item: item, queue: child.items, editing: $editing,
-                                        infoItem: $infoItem, moveRequest: $moveRequest)
-                    }
+                    Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+                }
+                .contextMenu {
+                    ItemContextMenu(item: item, queue: child.items, editing: $editing,
+                                    infoItem: $infoItem, moveRequest: $moveRequest)
+                }
+        }
+    }
+
+    var body: some View {
+        let child = library.children(of: path)
+        // Plain List when browsing; List(selection:) only in edit mode. Binding a selection
+        // installs a pan gesture that fights the interactive swipe-back (needed two swipes).
+        Group {
+            if editMode == .active {
+                List(selection: $selection) { rows(child) }
+            } else {
+                List { rows(child) }
             }
         }
         .listStyle(.insetGrouped)
