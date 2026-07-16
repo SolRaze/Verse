@@ -15,6 +15,7 @@ struct PlayerView: View {
 
 private struct NowPlayingPane: View {
     @ObservedObject var player: Player
+    @EnvironmentObject var coordinator: Coordinator
     @State private var showLyrics = false
 
     private var hasLyrics: Bool {
@@ -29,9 +30,10 @@ private struct NowPlayingPane: View {
             VStack(spacing: 0) {
                 Capsule().fill(.white.opacity(0.3)).frame(width: 36, height: 5).padding(.top, 8)
 
-                Spacer(minLength: 20)
-                artworkWithLyrics
-                Spacer(minLength: 20)
+                // Album art near the top.
+                artworkWithLyrics.padding(.top, 20)
+
+                Spacer(minLength: 12)
 
                 titleRow
                 lyricsButton
@@ -56,7 +58,7 @@ private struct NowPlayingPane: View {
             }
         }
         .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .onTapGesture { if showLyrics { withAnimation(.snappy) { showLyrics = false } } }
     }
@@ -127,22 +129,34 @@ private struct NowPlayingPane: View {
 
     private var transport: some View {
         HStack {
+            Button { coordinator.toggleShuffle() } label: {
+                Image(systemName: "shuffle")
+                    .font(.title3)
+                    .foregroundStyle(coordinator.isShuffled ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.6)))
+            }
+            Spacer()
             Button { player.previousTrack() } label: {
                 Image(systemName: "backward.fill").font(.title)
             }
             Spacer()
             Button { player.toggle() } label: {
                 Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 72))
+                    .font(.system(size: 68))
             }
             Spacer()
             Button { player.nextTrack() } label: {
                 Image(systemName: "forward.fill").font(.title)
             }
+            Spacer()
+            Button { coordinator.cycleRepeat() } label: {
+                Image(systemName: coordinator.repeatMode == .one ? "repeat.1" : "repeat")
+                    .font(.title3)
+                    .foregroundStyle(coordinator.repeatMode == .off ? AnyShapeStyle(.white.opacity(0.6)) : AnyShapeStyle(.tint))
+            }
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 36)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 18)
     }
 
     private func timeString(_ t: TimeInterval) -> String {

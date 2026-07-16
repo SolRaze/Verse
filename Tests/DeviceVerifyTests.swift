@@ -154,6 +154,35 @@ final class DeviceVerifyTests: XCTestCase {
         XCTAssertTrue(store.allFolders().contains([dest]))
     }
 
+    // MARK: Shuffle + repeat mode
+
+    @MainActor
+    func testRepeatModeCycles() {
+        let store = LibraryStore()
+        let c = Coordinator(library: store)
+        XCTAssertEqual(c.repeatMode, .off)
+        c.cycleRepeat(); XCTAssertEqual(c.repeatMode, .all)
+        c.cycleRepeat(); XCTAssertEqual(c.repeatMode, .one)
+        c.cycleRepeat(); XCTAssertEqual(c.repeatMode, .off)
+    }
+
+    @MainActor
+    func testShufflePreservesCurrentAndRestores() {
+        let store = LibraryStore()
+        let c = Coordinator(library: store)
+        let items = (0..<8).map { LibraryItem(title: "t\($0)", artist: "", source: .youtube(watchURL: URL(string: "https://y/\($0)")!), isVideo: false) }
+        c.play(items[3], in: items)
+        XCTAssertEqual(c.nowPlayingItemID, items[3].id)
+
+        c.toggleShuffle()
+        XCTAssertTrue(c.isShuffled)
+        XCTAssertEqual(c.nowPlayingItemID, items[3].id, "current track stays put when shuffling")
+
+        c.toggleShuffle()
+        XCTAssertFalse(c.isShuffled)
+        XCTAssertEqual(c.nowPlayingItemID, items[3].id, "original order restored, still on the same track")
+    }
+
     // MARK: File-manager ops — rename, move folder, batch, sort
 
     @MainActor
