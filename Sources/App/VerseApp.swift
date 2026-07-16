@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct VerseApp: App {
     @StateObject private var library: LibraryStore
+    @StateObject private var playlists = PlaylistStore()
     @StateObject private var coordinator: Coordinator
 
     init() {
@@ -15,6 +16,7 @@ struct VerseApp: App {
         WindowGroup {
             LibraryView()
                 .environmentObject(library)
+                .environmentObject(playlists)
                 .environmentObject(coordinator)
         }
     }
