@@ -1,3 +1,4 @@
+import ActivityKit
 import Foundation
 import MediaPlayer
 import UIKit
@@ -65,13 +66,14 @@ final class NowPlaying {
         self.lyrics = lyrics
         self.shownLineIndex = nil
         publish(position: 0, playing: false, image: track.artwork, lyricLine: nil)
+        startActivity()
     }
 
     func end() {
         track = nil
         lyrics = nil
         center.nowPlayingInfo = nil
-        center.playbackState = .stopped
+        endActivity()
     }
 
     /// Call on every player tick and on every play/pause/seek.
@@ -87,6 +89,7 @@ final class NowPlaying {
         }
 
         let index = lyrics.lineIndex(at: position)
+        syncActivity(index: index, playing: playing)
         if let shown = shownLineIndex, shown == index {
             publish(position: position, playing: playing, image: nil, lyricLine: nil)  // timing only
             return
@@ -117,12 +120,69 @@ final class NowPlaying {
         }
 
         if let image {
-            info[MPMediaItemPropertyArtwork] =
-                MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            info[MPMediaItemPropertyArtwork] = Self.artwork(image)
         }
 
         center.nowPlayingInfo = info
-        center.playbackState = playing ? .playing : .paused
+    }
+
+    /// MediaPlayer calls the artwork block on ITS queue (e.g. jpegDataWithSize:), not main.
+    /// Built inside a @MainActor method the closure inherits main-actor isolation and the Swift 6
+    /// runtime dispatch-asserts — SIGTRAP. nonisolated here is load-bearing, not style.
+    private nonisolated static func artwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    // MARK: - Live Activity (per-line lyrics on the Lock Screen, SPEC §6)
+
+    private var activity: Activity<LyricActivityAttributes>?
+    private var activityState: LyricActivityAttributes.ContentState?
+
+    /// One activity per track, only when synced lyrics exist — a lyric-less track has nothing
+    /// to show that the system now-playing surface doesn't already.
+    private func startActivity() {
+        endActivity()
+        guard let track, let lyrics, lyrics.isSynced,
+              ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let state = LyricActivityAttributes.ContentState(
+            previous: "", current: "", next: lyrics.lines.first?.text ?? "", isPlaying: false)
+        activityState = state
+        activity = try? Activity.request(
+            attributes: LyricActivityAttributes(title: track.title, artist: track.artist),
+            content: .init(state: state, staleDate: nil))
+    }
+
+    /// Cheap when nothing changed: dedups on ContentState equality, so it only hits ActivityKit
+    /// on a line change or a play/pause flip — seconds apart, well inside update budgets.
+    private func syncActivity(index: Int?, playing: Bool) {
+        guard let activity, let lyrics else { return }
+        let lines = lyrics.lines
+        let state = LyricActivityAttributes.ContentState(
+            previous: index.flatMap { $0 > 0 ? lines[$0 - 1].text : nil } ?? "",
+            current: index.map { lines[$0].text } ?? "",
+            next: index.map { $0 + 1 < lines.count ? lines[$0 + 1].text : "" }
+                ?? lines.first?.text ?? "",
+            isPlaying: playing)
+        guard state != activityState else { return }
+        activityState = state
+        let sent = Sent(activity)
+        Task { await sent.value.update(ActivityContent(state: state, staleDate: nil)) }
+    }
+
+    private func endActivity() {
+        if let activity {
+            let sent = Sent(activity)
+            Task { await sent.value.end(nil, dismissalPolicy: .immediate) }
+        }
+        activity = nil
+        activityState = nil
+    }
+
+    /// ActivityKit's Activity is thread-safe but not declared Sendable, so awaiting its async
+    /// methods from this @MainActor class trips Swift 6 region checking. Box it.
+    private struct Sent<T>: @unchecked Sendable {
+        let value: T
+        init(_ value: T) { self.value = value }
     }
 
     // MARK: - Lyrics -> artwork

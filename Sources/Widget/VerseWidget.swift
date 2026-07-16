@@ -62,7 +62,6 @@ struct VerseWidgetView: View {
     }
 }
 
-@main
 struct VerseWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "VerseNowPlaying", provider: VerseProvider()) {
@@ -71,5 +70,53 @@ struct VerseWidget: Widget {
         .configurationDisplayName("Now Playing")
         .description("Controls whatever Verse is playing.")
         .supportedFamilies([.systemMedium])
+    }
+}
+
+// MARK: - Live Activity: per-line lyrics on the Lock Screen (SPEC §6)
+
+struct LyricLiveActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: LyricActivityAttributes.self) { context in
+            VStack(spacing: 4) {
+                if !context.state.previous.isEmpty {
+                    Text(context.state.previous)
+                        .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Text(context.state.current.isEmpty ? context.attributes.title : context.state.current)
+                    .font(.headline).lineLimit(2).multilineTextAlignment(.center)
+                if !context.state.next.isEmpty {
+                    Text(context.state.next)
+                        .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .activityBackgroundTint(Color.black.opacity(0.8))
+            .activitySystemActionForegroundColor(.white)
+        } dynamicIsland: { context in
+            // iPhone 17e has no Dynamic Island; this is the minimum ActivityKit requires,
+            // and it works if the activity ever runs on hardware that does.
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.state.current.isEmpty ? context.attributes.title : context.state.current)
+                        .font(.headline).lineLimit(2)
+                }
+            } compactLeading: {
+                Image(systemName: context.state.isPlaying ? "music.note" : "pause.fill")
+            } compactTrailing: {
+                EmptyView()
+            } minimal: {
+                Image(systemName: "music.note")
+            }
+        }
+    }
+}
+
+@main
+struct VerseWidgets: WidgetBundle {
+    var body: some Widget {
+        VerseWidget()
+        LyricLiveActivity()
     }
 }
