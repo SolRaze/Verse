@@ -9,8 +9,11 @@ struct LibraryView: View {
     @State private var linkText = ""
     @State private var search = ""
     @State private var editing: LibraryItem?
+    @State private var moving: LibraryItem?
     @State private var addingLink = false
     @State private var pasteSource: LinkSource?
+    @State private var creatingFolder = false
+    @State private var newFolderName = ""
 
     /// The link kinds the + menu offers. `host` seeds a hint; `addLink` still routes by URL.
     enum LinkSource: String, Identifiable {
@@ -46,15 +49,24 @@ struct LibraryView: View {
                 PlaylistDetailView(playlist: pl)
             }
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showingImporter = true } label: { Image(systemName: "folder") }
-                        .disabled(addingLink)
-                    ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
-                        Button { linkText = ""; pasteSource = src } label: {
-                            Image(systemName: src.icon)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { newFolderName = ""; creatingFolder = true } label: {
+                            Label("New Folder", systemImage: "folder.badge.plus")
                         }
-                        .disabled(addingLink)
+                        Button { showingImporter = true } label: {
+                            Label("Open from Files", systemImage: "folder")
+                        }
+                        Divider()
+                        ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
+                            Button { linkText = ""; pasteSource = src } label: {
+                                Label(src.rawValue, systemImage: src.icon)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "plus")
                     }
+                    .disabled(addingLink)
                 }
             }
             .overlay { emptyState }
@@ -80,9 +92,16 @@ struct LibraryView: View {
             ) { Button("OK", role: .cancel) {} } message: {
                 Text(coordinator.lastError ?? "")
             }
+            .alert("New Folder", isPresented: $creatingFolder) {
+                TextField("Name", text: $newFolderName)
+                Button("Create") { library.createFolder(named: newFolderName, in: []); newFolderName = "" }
+                Button("Cancel", role: .cancel) { newFolderName = "" }
+            }
             .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
             .sheet(item: $editing) { item in EditItemSheet(item: item) }
+            .sheet(item: $moving) { item in MoveSheet(item: item) }
         }
+        .tint(.white)                 // monotone: one accent, no colored chrome
         .preferredColorScheme(.dark)
     }
 
@@ -154,11 +173,11 @@ struct LibraryView: View {
                 Label("Delete", systemImage: "trash")
             }
             Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
-                .tint(.orange)
         }
         .contextMenu {
             Button { coordinator.play(item, in: queue) } label: { Label("Play", systemImage: "play.fill") }
             Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+            Button { moving = item } label: { Label("Move to…", systemImage: "folder") }
             Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
         }
     }
@@ -202,6 +221,9 @@ private struct FolderView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var coordinator: Coordinator
     @State private var editing: LibraryItem?
+    @State private var moving: LibraryItem?
+    @State private var creatingFolder = false
+    @State private var newFolderName = ""
     let path: [String]
 
     var body: some View {
@@ -234,11 +256,11 @@ private struct FolderView: View {
                             Label("Delete", systemImage: "trash")
                         }
                         Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
-                            .tint(.orange)
                     }
                     .contextMenu {
                         Button { coordinator.play(item, in: child.items) } label: { Label("Play", systemImage: "play.fill") }
                         Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+                        Button { moving = item } label: { Label("Move to…", systemImage: "folder") }
                         Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
                     }
             }
@@ -248,15 +270,25 @@ private struct FolderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                // Play the whole subtree as one queue.
-                Button {
-                    let all = library.descendants(of: path)
-                    if let first = all.first { coordinator.play(first, in: all) }
-                } label: { Image(systemName: "play.fill") }
+                Menu {
+                    Button {
+                        let all = library.descendants(of: path)
+                        if let first = all.first { coordinator.play(first, in: all) }
+                    } label: { Label("Play", systemImage: "play.fill") }
+                    Button { newFolderName = ""; creatingFolder = true } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
             }
+        }
+        .alert("New Folder", isPresented: $creatingFolder) {
+            TextField("Name", text: $newFolderName)
+            Button("Create") { library.createFolder(named: newFolderName, in: path); newFolderName = "" }
+            Button("Cancel", role: .cancel) { newFolderName = "" }
         }
         .safeAreaInset(edge: .bottom) { MiniPlayerBar() }
         .sheet(item: $editing) { item in EditItemSheet(item: item) }
+        .sheet(item: $moving) { item in MoveSheet(item: item) }
     }
 }
 
@@ -389,7 +421,7 @@ private struct PlaylistDetailView: View {
                         Spacer()
                         if PlaylistMatcher.match(entry, in: library.items) != nil {
                             Image(systemName: "arrow.down.circle.fill")
-                                .font(.footnote).foregroundStyle(.green)
+                                .font(.footnote).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -474,6 +506,50 @@ private struct MiniPlayerContent: View {
 
 // MARK: -
 
+/// Pick a destination folder for an item, or make a new one on the spot.
+private struct MoveSheet: View {
+    @EnvironmentObject var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var newFolderName = ""
+    let item: LibraryItem
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack {
+                        TextField("New folder name", text: $newFolderName)
+                        Button("Create") {
+                            library.createFolder(named: newFolderName, in: [])
+                            library.move(item, to: [newFolderName.trimmingCharacters(in: .whitespaces)])
+                            dismiss()
+                        }
+                        .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+                Section("Move to") {
+                    Button { library.move(item, to: []); dismiss() } label: {
+                        Label("Library (root)", systemImage: "house")
+                    }
+                    ForEach(library.allFolders(), id: \.self) { path in
+                        Button { library.move(item, to: path); dismiss() } label: {
+                            Label(path.joined(separator: " / "), systemImage: "folder")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Move \(item.title)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .tint(.white)
+    }
+}
+
 private struct EditItemSheet: View {
     @EnvironmentObject var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
@@ -497,5 +573,6 @@ private struct EditItemSheet: View {
             }
         }
         .presentationDetents([.height(220)])
+        .tint(.white)
     }
 }
