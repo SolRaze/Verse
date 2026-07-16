@@ -28,13 +28,13 @@ private struct NowPlayingPane: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                Capsule().fill(.white.opacity(0.3)).frame(width: 36, height: 5).padding(.top, 8)
+                Capsule().fill(.white.opacity(0.3)).frame(width: 36, height: 5).padding(.top, 10)
 
-                // Album art near the top, then controls pulled up right under it.
-                artworkWithLyrics.padding(.top, 16)
-                titleRow.padding(.top, 20)
-                lyricsButton
-                scrubber
+                // Album art near the top, offset so it doesn't crowd the drag handle.
+                artworkWithLyrics.padding(.top, 44)
+                titleRow.padding(.top, 28)
+                lyricsButton.padding(.top, 4)
+                scrubber.padding(.top, 8)
                 transport
 
                 Spacer(minLength: 0)
@@ -107,7 +107,6 @@ private struct NowPlayingPane: View {
                     .background(showLyrics ? .white : .white.opacity(0.15),
                                 in: Capsule())
             }
-            .padding(.top, 10)
         }
     }
 

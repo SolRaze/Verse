@@ -304,17 +304,18 @@ private struct FolderView: View {
 
     var body: some View {
         let child = library.children(of: path)
-        // Plain List when browsing; List(selection:) only in edit mode. Binding a selection
-        // installs a pan gesture that fights the interactive swipe-back (needed two swipes).
+        // Plain List with NO editMode environment while browsing — both a selection binding and
+        // an editMode binding install pan gestures that fight the interactive swipe-back
+        // (it took two swipes). Only wire them up once the user actually enters Select.
         Group {
             if editMode == .active {
                 List(selection: $selection) { rows(child) }
+                    .environment(\.editMode, $editMode)
             } else {
                 List { rows(child) }
             }
         }
         .listStyle(.insetGrouped)
-        .environment(\.editMode, $editMode)
         .navigationTitle(path.last ?? "Library")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
