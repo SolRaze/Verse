@@ -20,11 +20,13 @@ final class AirPlayVideoPlayer: ObservableObject {
     let player = AVPlayer()
 
     @Published private(set) var isExternal = false   // true while video is on the car / TV
+    @Published private(set) var isPlaying = false
 
     /// SponsorBlock segments for the current item; entering one seeks past it.
     var skipSegments: [(start: TimeInterval, end: TimeInterval)] = []
 
     private var observation: NSKeyValueObservation?
+    private var rateObservation: NSKeyValueObservation?
     private var timeObserver: Any?
 
     init() {
@@ -33,6 +35,10 @@ final class AirPlayVideoPlayer: ObservableObject {
         player.usesExternalPlaybackWhileExternalScreenIsActive = true
         observation = player.observe(\.isExternalPlaybackActive, options: [.initial, .new]) { [weak self] p, _ in
             Task { @MainActor in self?.isExternal = p.isExternalPlaybackActive }
+        }
+        rateObservation = player.observe(\.rate, options: [.initial, .new]) { [weak self] p, _ in
+            let playing = p.rate > 0
+            Task { @MainActor in self?.isPlaying = playing }
         }
         // 1Hz is plenty for SponsorBlock; segments are tens of seconds long.
         timeObserver = player.addPeriodicTimeObserver(
