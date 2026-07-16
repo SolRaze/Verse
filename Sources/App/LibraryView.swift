@@ -36,8 +36,9 @@ struct LibraryView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .searchable(text: $search, prompt: "Search your library")
-            .navigationTitle("Library")
+            .searchable(text: $search)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: FolderPath.self) { fp in
                 FolderView(path: fp.components)
             }
@@ -45,21 +46,15 @@ struct LibraryView: View {
                 PlaylistDetailView(playlist: pl)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button { showingImporter = true } label: {
-                            Label("Open from Files", systemImage: "folder")
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showingImporter = true } label: { Image(systemName: "folder") }
+                        .disabled(addingLink)
+                    ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
+                        Button { linkText = ""; pasteSource = src } label: {
+                            Image(systemName: src.icon)
                         }
-                        Divider()
-                        ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
-                            Button { linkText = ""; pasteSource = src } label: {
-                                Label(src.rawValue, systemImage: src.icon)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "plus")
+                        .disabled(addingLink)
                     }
-                    .disabled(addingLink)
                 }
             }
             .overlay { emptyState }
