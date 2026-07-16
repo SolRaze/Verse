@@ -13,7 +13,7 @@ struct LibraryView: View {
     @State private var moveRequest: MoveRequest?
     @State private var addingLink = false
     @State private var pasteSource: LinkSource?
-    @State private var creatingFolder = false
+    @State private var newFolderParent: [String]?     // nil = alert hidden
     @State private var newFolderName = ""
     @State private var renamingFolder: [String]?
     @State private var folderNewName = ""
@@ -61,15 +61,15 @@ struct LibraryView: View {
                     } else {
                         Menu {
                             Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
+                            Button { newFolderName = ""; newFolderParent = [] } label: {
+                                Label("New Folder", systemImage: "folder.badge.plus")
+                            }
                             SortMenu()
                         } label: { Image(systemName: "ellipsis.circle") }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button { newFolderName = ""; creatingFolder = true } label: {
-                            Label("New Folder", systemImage: "folder.badge.plus")
-                        }
                         Button { showingImporter = true } label: {
                             Label("Open from Files", systemImage: "folder")
                         }
@@ -115,10 +115,15 @@ struct LibraryView: View {
             ) { Button("OK", role: .cancel) {} } message: {
                 Text(coordinator.lastError ?? "")
             }
-            .alert("New Folder", isPresented: $creatingFolder) {
+            .alert("New Folder", isPresented: .init(
+                get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })
+            ) {
                 TextField("Name", text: $newFolderName)
-                Button("Create") { library.createFolder(named: newFolderName, in: []); newFolderName = "" }
-                Button("Cancel", role: .cancel) { newFolderName = "" }
+                Button("Create") {
+                    library.createFolder(named: newFolderName, in: newFolderParent ?? [])
+                    newFolderName = ""; newFolderParent = nil
+                }
+                Button("Cancel", role: .cancel) { newFolderName = ""; newFolderParent = nil }
             }
             .alert("Rename Folder", isPresented: .init(
                 get: { renamingFolder != nil }, set: { if !$0 { renamingFolder = nil } })
@@ -206,7 +211,8 @@ struct LibraryView: View {
 
     @ViewBuilder private func folderMenu(_ path: [String]) -> some View {
         FolderContextMenu(path: path, renamingFolder: $renamingFolder,
-                          folderNewName: $folderNewName, moveRequest: $moveRequest)
+                          folderNewName: $folderNewName, newFolderParent: $newFolderParent,
+                          moveRequest: $moveRequest)
     }
 
     @ViewBuilder private func itemMenu(_ item: LibraryItem, queue: [LibraryItem]) -> some View {
@@ -255,7 +261,7 @@ private struct FolderView: View {
     @State private var editing: LibraryItem?
     @State private var infoItem: LibraryItem?
     @State private var moveRequest: MoveRequest?
-    @State private var creatingFolder = false
+    @State private var newFolderParent: [String]?
     @State private var newFolderName = ""
     @State private var renamingFolder: [String]?
     @State private var folderNewName = ""
@@ -277,7 +283,8 @@ private struct FolderView: View {
                 }
                 .contextMenu {
                     FolderContextMenu(path: path + [name], renamingFolder: $renamingFolder,
-                                      folderNewName: $folderNewName, moveRequest: $moveRequest)
+                                      folderNewName: $folderNewName, newFolderParent: $newFolderParent,
+                                      moveRequest: $moveRequest)
                 }
             }
             ForEach(child.items) { item in
@@ -311,7 +318,7 @@ private struct FolderView: View {
                             if let first = all.first { coordinator.play(first, in: all) }
                         } label: { Label("Play", systemImage: "play.fill") }
                         Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
-                        Button { newFolderName = ""; creatingFolder = true } label: {
+                        Button { newFolderName = ""; newFolderParent = path } label: {
                             Label("New Folder", systemImage: "folder.badge.plus")
                         }
                         SortMenu()
@@ -319,10 +326,15 @@ private struct FolderView: View {
                 }
             }
         }
-        .alert("New Folder", isPresented: $creatingFolder) {
+        .alert("New Folder", isPresented: .init(
+            get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })
+        ) {
             TextField("Name", text: $newFolderName)
-            Button("Create") { library.createFolder(named: newFolderName, in: path); newFolderName = "" }
-            Button("Cancel", role: .cancel) { newFolderName = "" }
+            Button("Create") {
+                library.createFolder(named: newFolderName, in: newFolderParent ?? path)
+                newFolderName = ""; newFolderParent = nil
+            }
+            Button("Cancel", role: .cancel) { newFolderName = ""; newFolderParent = nil }
         }
         .alert("Rename Folder", isPresented: .init(
             get: { renamingFolder != nil }, set: { if !$0 { renamingFolder = nil } })
@@ -595,6 +607,7 @@ struct FolderContextMenu: View {
     let path: [String]
     @Binding var renamingFolder: [String]?
     @Binding var folderNewName: String
+    @Binding var newFolderParent: [String]?
     @Binding var moveRequest: MoveRequest?
 
     var body: some View {
@@ -602,6 +615,9 @@ struct FolderContextMenu: View {
             let all = library.descendants(of: path)
             if let f = all.first { coordinator.play(f, in: all) }
         } label: { Label("Play", systemImage: "play.fill") }
+        Button { newFolderParent = path } label: {
+            Label("New Folder", systemImage: "folder.badge.plus")
+        }
         Button { folderNewName = path.last ?? ""; renamingFolder = path } label: {
             Label("Rename", systemImage: "pencil")
         }
