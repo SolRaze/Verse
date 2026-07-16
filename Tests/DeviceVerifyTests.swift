@@ -154,6 +154,49 @@ final class DeviceVerifyTests: XCTestCase {
         XCTAssertTrue(store.allFolders().contains([dest]))
     }
 
+    // MARK: File-manager ops — rename, move folder, batch, sort
+
+    @MainActor
+    func testFolderRenameMoveBatchSort() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Fm-\(UUID().uuidString)")
+        let sub = root.appendingPathComponent("A")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        let wav = try makeWAV()
+        try Data(contentsOf: wav).write(to: sub.appendingPathComponent("b song.mp3"))
+        try Data(contentsOf: wav).write(to: sub.appendingPathComponent("a song.mp3"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = LibraryStore()
+        store.add(pickedURLs: [root])
+        let rootName = root.lastPathComponent
+        defer { store.removeFolder([rootName]) }
+
+        // Sort by name ascending/descending.
+        store.sortField = .name; store.sortAscending = true
+        XCTAssertEqual(store.children(of: [rootName, "A"]).items.map(\.title), ["a song", "b song"])
+        store.sortAscending = false
+        XCTAssertEqual(store.children(of: [rootName, "A"]).items.map(\.title), ["b song", "a song"])
+
+        // Rename folder A -> Alpha; items follow.
+        store.renameFolder([rootName, "A"], to: "Alpha")
+        XCTAssertEqual(store.descendants(of: [rootName, "Alpha"]).count, 2)
+        XCTAssertTrue(store.descendants(of: [rootName, "A"]).isEmpty)
+
+        // Move Alpha under a new top folder.
+        store.createFolder(named: "Top-\(rootName)", in: [])
+        store.moveFolder([rootName, "Alpha"], under: ["Top-\(rootName)"])
+        XCTAssertEqual(store.descendants(of: ["Top-\(rootName)", "Alpha"]).count, 2)
+        defer { store.removeFolder(["Top-\(rootName)"]) }
+
+        // Batch move both items to root, then batch delete.
+        let ids = Set(store.descendants(of: ["Top-\(rootName)", "Alpha"]).map(\.id))
+        store.move(ids, to: [])
+        XCTAssertEqual(store.children(of: []).items.filter { ids.contains($0.id) }.count, 2)
+        store.remove(ids)
+        XCTAssertTrue(store.items.filter { ids.contains($0.id) }.isEmpty)
+    }
+
     // MARK: Playlist fetchers (live scrapes — these break when the sites change)
 
     func testYouTubePlaylistFetch() async throws {

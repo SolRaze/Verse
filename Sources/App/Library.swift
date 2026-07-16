@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 struct LibraryItem: Codable, Identifiable, Hashable {
@@ -17,6 +18,10 @@ struct LibraryItem: Codable, Identifiable, Hashable {
     /// organization, subfolders are the playlists.
     var folders: [String] = []
 
+    /// When it entered the library — powers "Date Added" sorting. Optional so libraries saved
+    /// before this field decode cleanly (nil sorts oldest).
+    var dateAdded: Date?
+
     /// YouTube items get a free thumbnail from the video id; local files show an icon.
     var thumbnailURL: URL? {
         guard case let .youtube(watchURL) = source else { return nil }
@@ -29,6 +34,20 @@ struct LibraryItem: Codable, Identifiable, Hashable {
 
 /// ponytail: whole library is one Codable array in one JSON file. Personal library, fits in
 /// memory; SwiftData when it doesn't.
+/// File-manager sort options, applied to the items within a folder. Folders always sort by name.
+enum SortField: String, CaseIterable, Identifiable {
+    case name = "Name", dateAdded = "Date Added", artist = "Artist", kind = "Kind"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .name: "textformat"
+        case .dateAdded: "clock"
+        case .artist: "music.mic"
+        case .kind: "square.grid.2x2"
+        }
+    }
+}
+
 @MainActor
 final class LibraryStore: ObservableObject {
     @Published private(set) var items: [LibraryItem] = []
@@ -37,6 +56,9 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var customFolders: [[String]] = []
     /// Bumped when background artwork extraction finishes, so rows re-render with covers.
     @Published private(set) var artworkVersion = 0
+
+    @Published var sortField: SortField = .name { didSet { persistSort() } }
+    @Published var sortAscending = true { didSet { persistSort() } }
 
     private var dir: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
     private var file: URL { dir.appendingPathComponent("library.json") }
@@ -51,6 +73,14 @@ final class LibraryStore: ObservableObject {
            let saved = try? JSONDecoder().decode([[String]].self, from: data) {
             customFolders = saved
         }
+        if let raw = UserDefaults.standard.string(forKey: "sortField"),
+           let f = SortField(rawValue: raw) { sortField = f }
+        sortAscending = UserDefaults.standard.object(forKey: "sortAsc") as? Bool ?? true
+    }
+
+    private func persistSort() {
+        UserDefaults.standard.set(sortField.rawValue, forKey: "sortField")
+        UserDefaults.standard.set(sortAscending, forKey: "sortAsc")
     }
 
     private func save() {
@@ -76,6 +106,79 @@ final class LibraryStore: ObservableObject {
         guard let i = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[i].folders = path
         save()
+    }
+
+    /// Batch move / delete for multi-select.
+    func move(_ ids: Set<UUID>, to path: [String]) {
+        for i in items.indices where ids.contains(items[i].id) { items[i].folders = path }
+        save()
+    }
+
+    func remove(_ ids: Set<UUID>) {
+        items.removeAll { ids.contains($0.id) }
+        save()
+    }
+
+    /// Rename a folder: rewrite the component at its depth for every item under it, and any
+    /// custom-folder paths that pass through it.
+    func renameFolder(_ path: [String], to newName: String) {
+        let clean = newName.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty, !path.isEmpty else { return }
+        let depth = path.count - 1
+        let rewrite: ([String]) -> [String] = { comps in
+            guard comps.count >= path.count, Array(comps.prefix(path.count)) == path else { return comps }
+            var c = comps; c[depth] = clean; return c
+        }
+        for i in items.indices { items[i].folders = rewrite(items[i].folders) }
+        customFolders = customFolders.map(rewrite)
+        save()
+    }
+
+    /// Move a whole folder subtree under a new parent (reparent items + custom folders).
+    func moveFolder(_ path: [String], under newParent: [String]) {
+        guard let name = path.last, !newParent.starts(with: path) else { return }  // no cycles
+        let dest = newParent + [name]
+        let reparent: ([String]) -> [String] = { comps in
+            guard comps.starts(with: path) else { return comps }
+            return dest + Array(comps.dropFirst(path.count))
+        }
+        for i in items.indices { items[i].folders = reparent(items[i].folders) }
+        customFolders = customFolders.map(reparent)
+        if !customFolders.contains(dest) { customFolders.append(dest) }
+        save()
+    }
+
+    // MARK: - File info
+
+    struct FileInfo {
+        var location: String       // filename for files, watch URL for YouTube
+        var kind: String
+        var size: Int64?
+        var duration: TimeInterval?
+        var folder: String
+        var added: Date?
+    }
+
+    /// Resolve on-disk details for the info panel. Async because size/duration need the file.
+    func info(for item: LibraryItem) async -> FileInfo {
+        let folder = item.folders.isEmpty ? "Library" : item.folders.joined(separator: " / ")
+        guard case .file = item.source, let url = resolveURL(item) else {
+            if case let .youtube(watch) = item.source {
+                return FileInfo(location: watch.absoluteString, kind: "YouTube",
+                                size: nil, duration: nil, folder: folder, added: item.dateAdded)
+            }
+            return FileInfo(location: item.title, kind: "—", size: nil, duration: nil,
+                            folder: folder, added: item.dateAdded)
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
+        let duration = try? await AVURLAsset(url: url).load(.duration).seconds
+        return FileInfo(location: url.lastPathComponent,
+                        kind: url.pathExtension.uppercased(),
+                        size: size,
+                        duration: duration.flatMap { $0.isFinite ? $0 : nil },
+                        folder: folder, added: item.dateAdded)
     }
 
     /// Every folder path in the library (derived from items + custom), for a move picker.
@@ -164,7 +267,7 @@ final class LibraryStore: ObservableObject {
             title: title, artist: artist,
             source: .file(bookmark: bookmark),
             isVideo: Self.videoExtensions.contains(url.pathExtension.lowercased()),
-            folders: folders)
+            folders: folders, dateAdded: Date())
         items.append(item)
         return item
     }
@@ -188,7 +291,24 @@ final class LibraryStore: ObservableObject {
             subfolders.insert(f[path.count])
         }
         let ordered = subfolders.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-        return (ordered, here.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending })
+        return (ordered, sorted(here))
+    }
+
+    /// Apply the current sort to a set of items.
+    func sorted(_ items: [LibraryItem]) -> [LibraryItem] {
+        let by: (LibraryItem, LibraryItem) -> Bool
+        switch sortField {
+        case .name:
+            by = { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist:
+            by = { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
+        case .dateAdded:
+            by = { ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast) }
+        case .kind:
+            by = { !$0.isVideo && $1.isVideo }   // audio before video
+        }
+        let s = items.sorted(by: by)
+        return sortAscending ? s : s.reversed()
     }
 
     /// Every item at or below `path` — a whole subtree plays as one queue.
@@ -201,7 +321,8 @@ final class LibraryStore: ObservableObject {
 
     func add(youtubeURL: URL) {
         items.append(LibraryItem(title: youtubeURL.absoluteString, artist: "YouTube",
-                                 source: .youtube(watchURL: youtubeURL), isVideo: true))
+                                 source: .youtube(watchURL: youtubeURL), isVideo: true,
+                                 dateAdded: Date()))
         save()
     }
 
