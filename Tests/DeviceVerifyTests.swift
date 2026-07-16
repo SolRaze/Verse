@@ -124,6 +124,36 @@ final class DeviceVerifyTests: XCTestCase {
         XCTAssertEqual(store.descendants(of: [rootName]).count, 1, "subtree delete leaves only c")
     }
 
+    // MARK: Folder create + move management
+
+    @MainActor
+    func testCreateFolderAndMoveItem() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Mv-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(contentsOf: try makeWAV()).write(to: root.appendingPathComponent("song.mp3"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = LibraryStore()
+        store.add(pickedURLs: [root])
+        let rootName = root.lastPathComponent
+        // Unique name — LibraryStore persists to shared Documents, so a fixed name would
+        // accumulate across runs.
+        let dest = "Fav-\(UUID().uuidString)"
+        defer { store.removeFolder([dest]); store.removeFolder([rootName]) }
+
+        // Empty custom folder shows even with no items in it.
+        store.createFolder(named: dest, in: [])
+        XCTAssertTrue(store.children(of: []).folders.contains(dest))
+
+        // Move the imported song into it.
+        let song = try XCTUnwrap(store.descendants(of: [rootName]).first)
+        store.move(song, to: [dest])
+        XCTAssertEqual(store.children(of: [dest]).items.map(\.title), ["song"])
+        XCTAssertTrue(store.descendants(of: [rootName]).isEmpty, "moved out of its import folder")
+        XCTAssertTrue(store.allFolders().contains([dest]))
+    }
+
     // MARK: Playlist fetchers (live scrapes — these break when the sites change)
 
     func testYouTubePlaylistFetch() async throws {
