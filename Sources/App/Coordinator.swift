@@ -12,12 +12,19 @@ import SwiftUI
 final class Coordinator: ObservableObject {
     enum Engine { case vlc, airplay }
 
+    enum RepeatMode { case off, all, one }
+
     @Published var engine: Engine = .vlc
     @Published var showPlayer = false
     @Published var busy = false
     @Published var lastError: String?
     @Published private(set) var queue: [LibraryItem] = []
     @Published private(set) var queueIndex = 0
+    @Published private(set) var isShuffled = false
+    @Published var repeatMode: RepeatMode = .off
+
+    /// Restored when shuffle turns off.
+    private var originalQueue: [LibraryItem] = []
 
     /// What the mini bar and video pane show — kept here because the AVPlayer path has no
     /// published metadata of its own.
@@ -42,8 +49,46 @@ final class Coordinator: ObservableObject {
         self.library = library
         try? player.activateAudioSession()
         PlaybackBridge.shared.controls = player
-        player.onNext = { [weak self] in self?.step(1) }
+        player.onNext = { [weak self] in self?.advance(auto: false) }
         player.onPrevious = { [weak self] in self?.step(-1) }
+        player.onFinished = { [weak self] in self?.advance(auto: true) }
+    }
+
+    func toggleShuffle() {
+        isShuffled.toggle()
+        let current = queue.indices.contains(queueIndex) ? queue[queueIndex] : nil
+        if isShuffled {
+            originalQueue = queue
+            var rest = queue
+            if let c = current { rest.removeAll { $0.id == c.id } }
+            rest.shuffle()
+            queue = (current.map { [$0] } ?? []) + rest
+            queueIndex = 0
+        } else {
+            if !originalQueue.isEmpty { queue = originalQueue }
+            queueIndex = current.flatMap { c in queue.firstIndex { $0.id == c.id } } ?? queueIndex
+        }
+    }
+
+    func cycleRepeat() {
+        repeatMode = switch repeatMode { case .off: .all; case .all: .one; case .one: .off }
+    }
+
+    /// Advance the queue. `auto` = the track ended on its own (honors repeat-one); manual next
+    /// always moves forward. Both wrap when repeat-all is on.
+    private func advance(auto: Bool) {
+        if auto, repeatMode == .one {
+            Task { await start(queue[queueIndex]) }   // replay the same track
+            return
+        }
+        let next = queueIndex + 1
+        if queue.indices.contains(next) {
+            queueIndex = next
+            Task { await start(queue[next]) }
+        } else if repeatMode == .all, !queue.isEmpty {
+            queueIndex = 0
+            Task { await start(queue[0]) }
+        }
     }
 
     func play(_ item: LibraryItem, in allItems: [LibraryItem]) {

@@ -45,6 +45,9 @@ final class Player: NSObject, ObservableObject {
 
     var onNext: (() -> Void)?
     var onPrevious: (() -> Void)?
+    /// Fired when a track ends on its own (distinct from a manual next), so the queue can honor
+    /// repeat-one.
+    var onFinished: (() -> Void)?
 
     override init() {
         super.init()
@@ -126,7 +129,7 @@ extension Player: VLCMediaPlayerDelegate {
             isPlaying = vlc.isPlaying
             syncNowPlaying()
             if was != isPlaying { snapshot() }
-            if vlc.state == .ended { onNext?() }
+            if vlc.state == .ended { onFinished?() }
         }
     }
 }
