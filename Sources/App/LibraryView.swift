@@ -36,7 +36,7 @@ struct LibraryView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .safeAreaInset(edge: .top) { searchBar }
+            .searchable(text: $search, prompt: "Search your library")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: FolderPath.self) { fp in
@@ -44,6 +44,24 @@ struct LibraryView: View {
             }
             .navigationDestination(for: RemotePlaylist.self) { pl in
                 PlaylistDetailView(playlist: pl)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { showingImporter = true } label: {
+                            Label("Open from Files", systemImage: "folder")
+                        }
+                        Divider()
+                        ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
+                            Button { linkText = ""; pasteSource = src } label: {
+                                Label(src.rawValue, systemImage: src.icon)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .disabled(addingLink)
+                }
             }
             .overlay { emptyState }
             .overlay { if addingLink || coordinator.busy { ProgressView().controlSize(.large) } }
@@ -75,44 +93,6 @@ struct LibraryView: View {
     }
 
     // MARK: sections
-
-    /// Search field with the add menu sitting right beside it.
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search your library", text: $search)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                if !search.isEmpty {
-                    Button { search = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(.quaternary, in: Capsule())
-
-            Menu {
-                Button { showingImporter = true } label: {
-                    Label("Open from Files", systemImage: "folder")
-                }
-                Divider()
-                ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
-                    Button { linkText = ""; pasteSource = src } label: {
-                        Label(src.rawValue, systemImage: src.icon)
-                    }
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.title2.weight(.semibold)).foregroundStyle(.black)
-                    .frame(width: 40, height: 40)
-                    .background(.white, in: Circle())
-            }
-            .disabled(addingLink)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 8)
-        .background(.bar)
-    }
 
     @ViewBuilder private var remotePlaylistsSection: some View {
         if !playlists.playlists.isEmpty {
