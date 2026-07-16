@@ -37,8 +37,7 @@ struct LibraryView: View {
             }
             .listStyle(.insetGrouped)
             .searchable(text: $search, prompt: "Search your library")
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Library")
             .navigationDestination(for: FolderPath.self) { fp in
                 FolderView(path: fp.components)
             }
@@ -123,6 +122,15 @@ struct LibraryView: View {
                             Label("Delete", systemImage: "trash")
                         }
                     }
+                    .contextMenu {
+                        Button {
+                            let all = library.descendants(of: path + [name])
+                            if let f = all.first { coordinator.play(f, in: all) }
+                        } label: { Label("Play", systemImage: "play.fill") }
+                        Button(role: .destructive) { library.removeFolder(path + [name]) } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 ForEach(child.items) { item in itemButton(item, queue: child.items) }
             }
@@ -151,6 +159,12 @@ struct LibraryView: View {
                 Label("Delete", systemImage: "trash")
             }
             Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+                .tint(.orange)
+        }
+        .contextMenu {
+            Button { coordinator.play(item, in: queue) } label: { Label("Play", systemImage: "play.fill") }
+            Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+            Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
         }
     }
 
@@ -207,6 +221,15 @@ private struct FolderView: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                .contextMenu {
+                    Button {
+                        let all = library.descendants(of: path + [name])
+                        if let f = all.first { coordinator.play(f, in: all) }
+                    } label: { Label("Play", systemImage: "play.fill") }
+                    Button(role: .destructive) { library.removeFolder(path + [name]) } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
             }
             ForEach(child.items) { item in
                 Button { coordinator.play(item, in: child.items) } label: { ItemRow(item: item) }
@@ -216,6 +239,12 @@ private struct FolderView: View {
                             Label("Delete", systemImage: "trash")
                         }
                         Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+                            .tint(.orange)
+                    }
+                    .contextMenu {
+                        Button { coordinator.play(item, in: child.items) } label: { Label("Play", systemImage: "play.fill") }
+                        Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+                        Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
                     }
             }
         }
@@ -238,6 +267,9 @@ private struct FolderView: View {
 
 // MARK: - Rows
 
+/// "1 item" / "12 items".
+func itemCountText(_ n: Int) -> String { "\(n) item\(n == 1 ? "" : "s")" }
+
 private struct FolderRow: View {
     let name: String
     let count: Int
@@ -245,12 +277,12 @@ private struct FolderRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "folder.fill")
-                .foregroundStyle(.secondary)
-                .frame(width: 44, height: 44)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .font(.title2).foregroundStyle(.tint)
+                .frame(width: 48, height: 48)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).lineLimit(1)
-                Text("\(count) items").font(.caption).foregroundStyle(.secondary)
+                Text(itemCountText(count)).font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -259,19 +291,29 @@ private struct FolderRow: View {
 private struct ItemRow: View {
     // Observe the store so rows re-render when background artwork extraction finishes.
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var coordinator: Coordinator
     let item: LibraryItem
+
+    private var isNowPlaying: Bool { coordinator.nowPlayingItemID == item.id }
 
     var body: some View {
         HStack(spacing: 12) {
             thumbnail
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).lineLimit(1)
+                    .foregroundStyle(isNowPlaying ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 if !item.artist.isEmpty {
                     Text(item.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
+            }
+            Spacer(minLength: 8)
+            if isNowPlaying {
+                Image(systemName: "waveform")
+                    .foregroundStyle(.tint)
+                    .symbolEffect(.variableColor.iterative, isActive: coordinator.player.isPlaying)
             }
         }
     }
@@ -288,9 +330,9 @@ private struct ItemRow: View {
     }
 
     private var placeholder: some View {
-        RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
             .overlay(Image(systemName: item.isVideo ? "film" : "music.note")
-                .font(.footnote).foregroundStyle(.secondary))
+                .foregroundStyle(.secondary))
     }
 }
 
@@ -308,12 +350,12 @@ private struct PlaylistRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.title3).foregroundStyle(.secondary)
-                .frame(width: 44, height: 44)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .font(.title2).foregroundStyle(.tint)
+                .frame(width: 48, height: 48)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.title).lineLimit(1)
-                Text("\(playlist.entries.count) items")
+                Text(itemCountText(playlist.entries.count))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
