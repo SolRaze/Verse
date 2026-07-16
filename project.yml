@@ -22,6 +22,14 @@ packages:
     url: https://github.com/tylerjonesio/vlckit-spm
     exactVersion: 3.6.0
 
+schemes:
+  Verse:
+    build:
+      targets:
+        Verse: all
+    test:
+      targets: [VerseTests]
+
 targets:
   Verse:
     type: application
@@ -45,6 +53,8 @@ targets:
       properties:
         CFBundleDisplayName: Verse
         UILaunchScreen: {}
+        # Per-line lyrics Live Activity (SPEC §6).
+        NSSupportsLiveActivities: true
         # Background audio. Without this there is no lock screen and no CarPlay.
         UIBackgroundModes: [audio]
         # Let Files.app and a Mac drop media straight into the app.
@@ -66,8 +76,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sol.Verse.Widget   # appex ids must nest under the app's
     sources:
       - Sources/Widget
-      - Sources/Core/Snapshot.swift   # shared across the process boundary
-      - Sources/Core/Intents.swift    # intents visible to both targets, run in app process
+      - Sources/Core/Snapshot.swift       # shared across the process boundary
+      - Sources/Core/Intents.swift        # intents visible to both targets, run in app process
+      - Sources/Core/LyricActivity.swift  # activity attributes, rendered here, driven by app
     entitlements:
       path: VerseWidget.entitlements
       properties:
