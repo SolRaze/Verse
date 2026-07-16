@@ -33,6 +33,11 @@ final class Coordinator: ObservableObject {
         queue.indices.contains(queueIndex + 1) ? Array(queue[(queueIndex + 1)...]) : []
     }
 
+    /// Id of the item now playing, for the now-playing indicator on library rows.
+    var nowPlayingItemID: UUID? {
+        queue.indices.contains(queueIndex) ? queue[queueIndex].id : nil
+    }
+
     init(library: LibraryStore) {
         self.library = library
         try? player.activateAudioSession()
