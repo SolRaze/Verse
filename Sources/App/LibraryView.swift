@@ -9,11 +9,16 @@ struct LibraryView: View {
     @State private var linkText = ""
     @State private var search = ""
     @State private var editing: LibraryItem?
-    @State private var moving: LibraryItem?
+    @State private var infoItem: LibraryItem?
+    @State private var moveRequest: MoveRequest?
     @State private var addingLink = false
     @State private var pasteSource: LinkSource?
     @State private var creatingFolder = false
     @State private var newFolderName = ""
+    @State private var renamingFolder: [String]?
+    @State private var folderNewName = ""
+    @State private var selection = Set<UUID>()
+    @State private var editMode: EditMode = .inactive
 
     /// The link kinds the + menu offers. `host` seeds a hint; `addLink` still routes by URL.
     enum LinkSource: String, Identifiable {
@@ -30,7 +35,7 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            List(selection: $selection) {
                 if search.isEmpty {
                     remotePlaylistsSection
                     folderContents(path: [])          // top-level folders + loose items
@@ -39,6 +44,7 @@ struct LibraryView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .environment(\.editMode, $editMode)
             .searchable(text: $search)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -49,6 +55,16 @@ struct LibraryView: View {
                 PlaylistDetailView(playlist: pl)
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if editMode == .active {
+                        Button("Done") { editMode = .inactive; selection = [] }
+                    } else {
+                        Menu {
+                            Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
+                            SortMenu()
+                        } label: { Image(systemName: "ellipsis.circle") }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button { newFolderName = ""; creatingFolder = true } label: {
@@ -71,7 +87,14 @@ struct LibraryView: View {
             }
             .overlay { emptyState }
             .overlay { if addingLink || coordinator.busy { ProgressView().controlSize(.large) } }
-            .safeAreaInset(edge: .bottom) { MiniPlayerBar() }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 0) {
+                    if editMode == .active {
+                        BatchBar(selection: $selection, editMode: $editMode, moveRequest: $moveRequest)
+                    }
+                    MiniPlayerBar()
+                }
+            }
             .fileImporter(isPresented: $showingImporter,
                           allowedContentTypes: [.folder],
                           allowsMultipleSelection: true) { result in
@@ -97,9 +120,20 @@ struct LibraryView: View {
                 Button("Create") { library.createFolder(named: newFolderName, in: []); newFolderName = "" }
                 Button("Cancel", role: .cancel) { newFolderName = "" }
             }
+            .alert("Rename Folder", isPresented: .init(
+                get: { renamingFolder != nil }, set: { if !$0 { renamingFolder = nil } })
+            ) {
+                TextField("Name", text: $folderNewName)
+                Button("Rename") {
+                    if let p = renamingFolder { library.renameFolder(p, to: folderNewName) }
+                    renamingFolder = nil
+                }
+                Button("Cancel", role: .cancel) { renamingFolder = nil }
+            }
             .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
             .sheet(item: $editing) { item in EditItemSheet(item: item) }
-            .sheet(item: $moving) { item in MoveSheet(item: item) }
+            .sheet(item: $infoItem) { item in InfoSheet(item: item) }
+            .sheet(item: $moveRequest) { req in MoveSheet(request: req) }
         }
         .tint(.white)                 // monotone: one accent, no colored chrome
         .preferredColorScheme(.dark)
@@ -136,15 +170,7 @@ struct LibraryView: View {
                             Label("Delete", systemImage: "trash")
                         }
                     }
-                    .contextMenu {
-                        Button {
-                            let all = library.descendants(of: path + [name])
-                            if let f = all.first { coordinator.play(f, in: all) }
-                        } label: { Label("Play", systemImage: "play.fill") }
-                        Button(role: .destructive) { library.removeFolder(path + [name]) } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
+                    .contextMenu { folderMenu(path + [name]) }
                 }
                 ForEach(child.items) { item in itemButton(item, queue: child.items) }
             }
@@ -167,6 +193,7 @@ struct LibraryView: View {
         } label: {
             ItemRow(item: item)
         }
+        .tag(item.id)
         .tint(.primary)
         .swipeActions {
             Button(role: .destructive) { library.remove(item) } label: {
@@ -174,12 +201,17 @@ struct LibraryView: View {
             }
             Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
         }
-        .contextMenu {
-            Button { coordinator.play(item, in: queue) } label: { Label("Play", systemImage: "play.fill") }
-            Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
-            Button { moving = item } label: { Label("Move to…", systemImage: "folder") }
-            Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
-        }
+        .contextMenu { itemMenu(item, queue: queue) }
+    }
+
+    @ViewBuilder private func folderMenu(_ path: [String]) -> some View {
+        FolderContextMenu(path: path, renamingFolder: $renamingFolder,
+                          folderNewName: $folderNewName, moveRequest: $moveRequest)
+    }
+
+    @ViewBuilder private func itemMenu(_ item: LibraryItem, queue: [LibraryItem]) -> some View {
+        ItemContextMenu(item: item, queue: queue, editing: $editing,
+                        infoItem: $infoItem, moveRequest: $moveRequest)
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -221,14 +253,19 @@ private struct FolderView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var coordinator: Coordinator
     @State private var editing: LibraryItem?
-    @State private var moving: LibraryItem?
+    @State private var infoItem: LibraryItem?
+    @State private var moveRequest: MoveRequest?
     @State private var creatingFolder = false
     @State private var newFolderName = ""
+    @State private var renamingFolder: [String]?
+    @State private var folderNewName = ""
+    @State private var selection = Set<UUID>()
+    @State private var editMode: EditMode = .inactive
     let path: [String]
 
     var body: some View {
         let child = library.children(of: path)
-        List {
+        List(selection: $selection) {
             ForEach(child.folders, id: \.self) { name in
                 NavigationLink(value: FolderPath(path + [name])) {
                     FolderRow(name: name, count: library.descendants(of: path + [name]).count)
@@ -239,17 +276,13 @@ private struct FolderView: View {
                     }
                 }
                 .contextMenu {
-                    Button {
-                        let all = library.descendants(of: path + [name])
-                        if let f = all.first { coordinator.play(f, in: all) }
-                    } label: { Label("Play", systemImage: "play.fill") }
-                    Button(role: .destructive) { library.removeFolder(path + [name]) } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
+                    FolderContextMenu(path: path + [name], renamingFolder: $renamingFolder,
+                                      folderNewName: $folderNewName, moveRequest: $moveRequest)
                 }
             }
             ForEach(child.items) { item in
                 Button { coordinator.play(item, in: child.items) } label: { ItemRow(item: item) }
+                    .tag(item.id)
                     .tint(.primary)
                     .swipeActions {
                         Button(role: .destructive) { library.remove(item) } label: {
@@ -258,27 +291,32 @@ private struct FolderView: View {
                         Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
                     }
                     .contextMenu {
-                        Button { coordinator.play(item, in: child.items) } label: { Label("Play", systemImage: "play.fill") }
-                        Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
-                        Button { moving = item } label: { Label("Move to…", systemImage: "folder") }
-                        Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
+                        ItemContextMenu(item: item, queue: child.items, editing: $editing,
+                                        infoItem: $infoItem, moveRequest: $moveRequest)
                     }
             }
         }
         .listStyle(.insetGrouped)
+        .environment(\.editMode, $editMode)
         .navigationTitle(path.last ?? "Library")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        let all = library.descendants(of: path)
-                        if let first = all.first { coordinator.play(first, in: all) }
-                    } label: { Label("Play", systemImage: "play.fill") }
-                    Button { newFolderName = ""; creatingFolder = true } label: {
-                        Label("New Folder", systemImage: "folder.badge.plus")
-                    }
-                } label: { Image(systemName: "ellipsis.circle") }
+                if editMode == .active {
+                    Button("Done") { editMode = .inactive; selection = [] }
+                } else {
+                    Menu {
+                        Button {
+                            let all = library.descendants(of: path)
+                            if let first = all.first { coordinator.play(first, in: all) }
+                        } label: { Label("Play", systemImage: "play.fill") }
+                        Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
+                        Button { newFolderName = ""; creatingFolder = true } label: {
+                            Label("New Folder", systemImage: "folder.badge.plus")
+                        }
+                        SortMenu()
+                    } label: { Image(systemName: "ellipsis.circle") }
+                }
             }
         }
         .alert("New Folder", isPresented: $creatingFolder) {
@@ -286,9 +324,27 @@ private struct FolderView: View {
             Button("Create") { library.createFolder(named: newFolderName, in: path); newFolderName = "" }
             Button("Cancel", role: .cancel) { newFolderName = "" }
         }
-        .safeAreaInset(edge: .bottom) { MiniPlayerBar() }
+        .alert("Rename Folder", isPresented: .init(
+            get: { renamingFolder != nil }, set: { if !$0 { renamingFolder = nil } })
+        ) {
+            TextField("Name", text: $folderNewName)
+            Button("Rename") {
+                if let p = renamingFolder { library.renameFolder(p, to: folderNewName) }
+                renamingFolder = nil
+            }
+            Button("Cancel", role: .cancel) { renamingFolder = nil }
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 0) {
+                if editMode == .active {
+                    BatchBar(selection: $selection, editMode: $editMode, moveRequest: $moveRequest)
+                }
+                MiniPlayerBar()
+            }
+        }
         .sheet(item: $editing) { item in EditItemSheet(item: item) }
-        .sheet(item: $moving) { item in MoveSheet(item: item) }
+        .sheet(item: $infoItem) { item in InfoSheet(item: item) }
+        .sheet(item: $moveRequest) { req in MoveSheet(request: req) }
     }
 }
 
@@ -506,12 +562,126 @@ private struct MiniPlayerContent: View {
 
 // MARK: -
 
-/// Pick a destination folder for an item, or make a new one on the spot.
+/// Shared context menu for an item — identical on the root and inside folders.
+struct ItemContextMenu: View {
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var coordinator: Coordinator
+    let item: LibraryItem
+    let queue: [LibraryItem]
+    @Binding var editing: LibraryItem?
+    @Binding var infoItem: LibraryItem?
+    @Binding var moveRequest: MoveRequest?
+
+    var body: some View {
+        Button { coordinator.play(item, in: queue) } label: { Label("Play", systemImage: "play.fill") }
+        Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+        Button {
+            moveRequest = MoveRequest(title: "Move \(item.title)", excluding: []) {
+                library.move(item, to: $0)
+            }
+        } label: { Label("Move to…", systemImage: "folder") }
+        Button { infoItem = item } label: { Label("Info", systemImage: "info.circle") }
+        if let url = library.resolveURL(item) {
+            ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
+        }
+        Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
+    }
+}
+
+/// Shared context menu for a folder.
+struct FolderContextMenu: View {
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var coordinator: Coordinator
+    let path: [String]
+    @Binding var renamingFolder: [String]?
+    @Binding var folderNewName: String
+    @Binding var moveRequest: MoveRequest?
+
+    var body: some View {
+        Button {
+            let all = library.descendants(of: path)
+            if let f = all.first { coordinator.play(f, in: all) }
+        } label: { Label("Play", systemImage: "play.fill") }
+        Button { folderNewName = path.last ?? ""; renamingFolder = path } label: {
+            Label("Rename", systemImage: "pencil")
+        }
+        Button {
+            moveRequest = MoveRequest(title: "Move \(path.last ?? "")", excluding: path) {
+                library.moveFolder(path, under: $0)
+            }
+        } label: { Label("Move to…", systemImage: "folder") }
+        Button(role: .destructive) { library.removeFolder(path) } label: {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+}
+
+/// Sort field + order picker, shared by every browsing screen.
+struct SortMenu: View {
+    @EnvironmentObject var library: LibraryStore
+    var body: some View {
+        Menu {
+            Picker("Sort By", selection: $library.sortField) {
+                ForEach(SortField.allCases) { f in Label(f.rawValue, systemImage: f.icon).tag(f) }
+            }
+            Divider()
+            Picker("Order", selection: $library.sortAscending) {
+                Label("Ascending", systemImage: "arrow.up").tag(true)
+                Label("Descending", systemImage: "arrow.down").tag(false)
+            }
+        } label: { Label("Sort By", systemImage: "arrow.up.arrow.down") }
+    }
+}
+
+/// Bottom bar shown in select mode: batch delete / move.
+struct BatchBar: View {
+    @EnvironmentObject var library: LibraryStore
+    @Binding var selection: Set<UUID>
+    @Binding var editMode: EditMode
+    @Binding var moveRequest: MoveRequest?
+
+    var body: some View {
+        HStack {
+            Button(role: .destructive) {
+                library.remove(selection); selection = []; editMode = .inactive
+            } label: { Label("Delete", systemImage: "trash") }
+                .disabled(selection.isEmpty)
+            Spacer()
+            Text(selection.isEmpty ? "Select Items" : "\(selection.count) selected")
+                .font(.footnote).foregroundStyle(.secondary)
+            Spacer()
+            Button {
+                let ids = selection
+                moveRequest = MoveRequest(title: "Move \(ids.count)", excluding: []) { path in
+                    library.move(ids, to: path); selection = []; editMode = .inactive
+                }
+            } label: { Label("Move", systemImage: "folder") }
+                .disabled(selection.isEmpty)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 10)
+        .background(.bar)
+    }
+}
+
+/// A pending "move to a folder" action — the picker calls `onPick` with the chosen path.
+struct MoveRequest: Identifiable {
+    let id = UUID()
+    let title: String
+    let excluding: [String]        // hide this folder subtree (can't move into itself)
+    let onPick: ([String]) -> Void
+}
+
+/// Pick a destination folder, or make a new one on the spot. Works for a single item, a batch,
+/// or a folder — the caller supplies what to do with the picked path.
 private struct MoveSheet: View {
     @EnvironmentObject var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State private var newFolderName = ""
-    let item: LibraryItem
+    let request: MoveRequest
+
+    private var destinations: [[String]] {
+        library.allFolders().filter { !$0.starts(with: request.excluding) }
+    }
 
     var body: some View {
         NavigationStack {
@@ -520,33 +690,75 @@ private struct MoveSheet: View {
                     HStack {
                         TextField("New folder name", text: $newFolderName)
                         Button("Create") {
-                            library.createFolder(named: newFolderName, in: [])
-                            library.move(item, to: [newFolderName.trimmingCharacters(in: .whitespaces)])
-                            dismiss()
+                            let name = newFolderName.trimmingCharacters(in: .whitespaces)
+                            library.createFolder(named: name, in: [])
+                            pick([name])
                         }
                         .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
                 Section("Move to") {
-                    Button { library.move(item, to: []); dismiss() } label: {
-                        Label("Library (root)", systemImage: "house")
-                    }
-                    ForEach(library.allFolders(), id: \.self) { path in
-                        Button { library.move(item, to: path); dismiss() } label: {
+                    Button { pick([]) } label: { Label("Library (root)", systemImage: "house") }
+                    ForEach(destinations, id: \.self) { path in
+                        Button { pick(path) } label: {
                             Label(path.joined(separator: " / "), systemImage: "folder")
                         }
                     }
                 }
             }
-            .navigationTitle("Move \(item.title)")
+            .navigationTitle(request.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
         .tint(.white)
+    }
+
+    private func pick(_ path: [String]) { request.onPick(path); dismiss() }
+}
+
+/// File-manager "Get Info" panel.
+private struct InfoSheet: View {
+    @EnvironmentObject var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var info: LibraryStore.FileInfo?
+    let item: LibraryItem
+
+    var body: some View {
+        NavigationStack {
+            List {
+                LabeledContent("Title", value: item.title)
+                if !item.artist.isEmpty { LabeledContent("Artist", value: item.artist) }
+                if let info {
+                    LabeledContent("Where", value: info.folder)
+                    LabeledContent("Name", value: info.location)
+                    LabeledContent("Kind", value: info.kind)
+                    if let s = info.size {
+                        LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: s, countStyle: .file))
+                    }
+                    if let d = info.duration {
+                        LabeledContent("Duration", value: durationString(d))
+                    }
+                    if let a = info.added {
+                        LabeledContent("Added", value: a.formatted(date: .abbreviated, time: .shortened))
+                    }
+                } else {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                }
+            }
+            .navigationTitle("Info")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .tint(.white)
+        .task { info = await library.info(for: item) }
+    }
+
+    private func durationString(_ t: TimeInterval) -> String {
+        let s = Int(t)
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s/3600, (s%3600)/60, s%60)
+                         : String(format: "%d:%02d", s/60, s%60)
     }
 }
 
