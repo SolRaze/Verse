@@ -30,15 +30,14 @@ private struct NowPlayingPane: View {
             VStack(spacing: 0) {
                 Capsule().fill(.white.opacity(0.3)).frame(width: 36, height: 5).padding(.top, 8)
 
-                // Album art near the top.
-                artworkWithLyrics.padding(.top, 20)
-
-                Spacer(minLength: 12)
-
-                titleRow
+                // Album art near the top, then controls pulled up right under it.
+                artworkWithLyrics.padding(.top, 16)
+                titleRow.padding(.top, 20)
                 lyricsButton
                 scrubber
                 transport
+
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 24)
         }
@@ -58,7 +57,7 @@ private struct NowPlayingPane: View {
             }
         }
         .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: 300)
         .contentShape(Rectangle())
         .onTapGesture { if showLyrics { withAnimation(.snappy) { showLyrics = false } } }
     }
@@ -70,8 +69,9 @@ private struct NowPlayingPane: View {
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
         } else if let art = player.current?.artwork {
+            // scaledToFit, not fill — fill zoom-crops non-square covers.
             Image(uiImage: art)
-                .resizable().scaledToFill()
+                .resizable().scaledToFit()
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .shadow(radius: 20)
         } else {
