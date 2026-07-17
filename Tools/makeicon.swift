@@ -77,28 +77,35 @@ if style == "vinyl" {
         NSGraphicsContext.saveGraphicsState()
         circle(360).addClip()
 
-        // Clean and flat: a smooth sweep with NO radial streaks. The streaking was the noise —
-        // removing it did more for legibility than any amount of banding. Structure still follows
-        // reference.jpg: lit through left and right, dark through top and bottom.
+        // Flat sectors with hard separations, not a sweep. A restricted, deliberately COOL
+        // palette: the full spectrum put reds and magentas directly behind the red square, which
+        // is what made the red read as muddy. In reference.jpg the disc is green/yellow exactly
+        // where the tape sits, so the red has something to pop against. Dark sectors interleave
+        // to keep the reference's unlit bands.
+        // Smooth iridescence cut by dark radial divisions — NOT equal flat sectors. Carving a
+        // disc into equal coloured wedges reads as a pie chart no matter how few colours are
+        // used (tried at 16 and at 8; both were beach balls). In reference.jpg the flatness comes
+        // from smooth colour interrupted by dark bands.
         //
-        // BANDS is the wedge count: the default is high enough to read as continuous, and
-        // dropping it to ~20 posterises the disc into a pinwheel (tried; worse).
-        let bands = Int(ProcessInfo.processInfo.environment["BANDS"].flatMap(Int.init) ?? 1440)
-        for b in 0..<bands {
-            let a0 = Double(b) / Double(bands) * 360
-            let a1 = Double(b + 1) / Double(bands) * 360
-            let mid = (a0 + a1) / 2
-            let m = max(sheen(mid, around: 0, width: 78), sheen(mid, around: 180, width: 78))
+        // Hue is restricted to the cool half (green -> cyan -> violet). The full spectrum put
+        // red and magenta directly behind the red square, which is what made the red read as
+        // muddy; in the reference the disc is green where the tape lands.
+        let divisions = [30.0, 90, 150, 210, 270, 330]
+        let steps = 1440
+        for i in 0..<steps {
+            let ang = Double(i) / Double(steps) * 360
+            var m = max(sheen(ang, around: 0, width: 78), sheen(ang, around: 180, width: 78))
+            for d in divisions { m *= 1 - 0.92 * sheen(ang, around: d, width: 9) }
             let wedge = NSBezierPath()
             wedge.move(to: c)
-            // +0.4° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
-            wedge.appendArc(withCenter: c, radius: 360, startAngle: a0, endAngle: a1 + 0.4)
+            // +0.5° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
+            wedge.appendArc(withCenter: c, radius: 360,
+                            startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
             wedge.close()
-            // Hue runs two cycles around the disc, so each lit sector carries a full spectrum
-            // rather than one flat tint.
-            NSColor(calibratedHue: CGFloat((mid / 180).truncatingRemainder(dividingBy: 1)),
-                    saturation: CGFloat(0.85 * m),
-                    brightness: CGFloat(0.17 + 0.83 * m), alpha: 1).setFill()
+            let t = (ang / 180).truncatingRemainder(dividingBy: 1)     // two cycles
+            NSColor(calibratedHue: CGFloat(0.28 + 0.45 * t),
+                    saturation: CGFloat(0.75 * m),
+                    brightness: CGFloat(0.18 + 0.8 * m), alpha: 1).setFill()
             wedge.fill()
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -111,11 +118,15 @@ if style == "vinyl" {
     // SQ = square size. SQX = distance of its centre from the disc's centre; at 360 it straddles
     // the rim (chosen), below ~300 it sits inside the disc, and it must clear the centre hole
     // (r=150) or the two merge into a keyhole.
+    // Proportions measured off reference.jpg rather than guessed. There the disc is 379px across
+    // and the red is 167 x 203 — i.e. 0.44 of the disc wide, 0.54 tall, and TALLER THAN WIDE,
+    // not square. Its left edge starts about 0.34 of the radius out from centre.
     let env = ProcessInfo.processInfo.environment
-    let s = CGFloat(env["SQ"].flatMap(Double.init) ?? 300)
-    // 310, not 360: centred exactly on the rim, a square this size runs off the icon's edge.
-    let dx = CGFloat(env["SQX"].flatMap(Double.init) ?? 310)
-    let sq = NSRect(x: c.x + dx - s / 2, y: c.y - s / 2, width: s, height: s)
+    let height = CGFloat(env["SQH"].flatMap(Double.init) ?? 0.54) * 720
+    let left = c.x + CGFloat(env["SQL"].flatMap(Double.init) ?? 0.34) * 360
+    // Stretched to the icon's right edge, so it bleeds off rather than floating.
+    let right = CGFloat(env["SQR"].flatMap(Double.init) ?? Double(size))
+    let sq = NSRect(x: left, y: c.y - height / 2, width: right - left, height: height)
 
     // Solid red tape, per reference.jpg. Not plate-coloured: that would be a hole punched
     // through the disc, which is what made the icon read as a "C".
