@@ -556,16 +556,7 @@ private struct MiniPlayerContent: View {
 
     var body: some View {
         let _ = coordinator.player.isPlaying   // observe VLC state
-        HStack(spacing: 12) {
-            Image(systemName: coordinator.engine == .airplay ? "film" : "music.note")
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(coordinator.nowTitle).font(.footnote.weight(.semibold)).lineLimit(1)
-                if !coordinator.nowArtist.isEmpty {
-                    Text(coordinator.nowArtist).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            Spacer()
+        HStack(spacing: 10) {
             Button {
                 if coordinator.engine == .vlc {
                     coordinator.player.toggle()
@@ -575,18 +566,30 @@ private struct MiniPlayerContent: View {
             } label: {
                 Image(systemName: playing ? "pause.fill" : "play.fill").font(.title3)
             }
-            Button { coordinator.skip(1) } label: {
-                Image(systemName: "forward.fill").font(.body)
+            AirPlayButton().frame(width: 26, height: 26)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(coordinator.nowTitle).font(.footnote.weight(.semibold)).lineLimit(1)
+                if !coordinator.nowArtist.isEmpty {
+                    Text(coordinator.nowArtist).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
+            Spacer(minLength: 0)
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 10)
-        .padding(.bottom, 4)
-        .contentShape(Rectangle())
+        .padding(.horizontal, 16)
+        // No background: the tab bar's bottom accessory is already a glass capsule, so drawing
+        // another material capsule in here nests one inside the other.
+        .contentShape(Capsule())
         .onTapGesture { coordinator.showPlayer = true }
+        // Swipe the bar itself for next/previous — the transport buttons that used to sit here
+        // are gone, so the gesture is the only way through the queue from the mini player.
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { g in
+                    guard abs(g.translation.width) > abs(g.translation.height) else { return }
+                    coordinator.skip(g.translation.width < 0 ? 1 : -1)
+                })
     }
 }
 

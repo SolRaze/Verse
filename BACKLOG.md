@@ -30,18 +30,28 @@ Still open here: more tabs (Locations, per Jellyfin below).
 - Move the **AirPlay icon to the bottom**.
 - **Glass/translucent play button**.
 
-## Mini player
+## Mini player — **SHIPPED** (2026-07-17)
 
-- More **capsule**-shaped, same translucent material.
-- **Play button on the left**; cast/AirPlay also left.
-- **Swipe for next / previous**.
+- ~~More **capsule**-shaped, same translucent material.~~
+- ~~**Play button on the left**; cast/AirPlay also left.~~
+- ~~**Swipe for next / previous**.~~ The forward button is gone; the swipe replaces it.
+- Sits in `.tabViewBottomAccessory` (iOS 26) rather than a hand-rolled `safeAreaInset`, so it
+  rides above the tab bar's glass pill instead of sitting flush under it. That container draws
+  its own capsule and material — don't add a background inside it or you nest two capsules.
 
 ## App icon — **SHIPPED** (2026-07-17)
 
-- ~~Replace with something new — a **CD or vinyl**.~~ Vinyl: white disc, cut grooves, monotone
-  on a near-black plate. CD was drawn and rejected — its identity is the iridescent sheen, and
-  gradients are banned, which leaves an anonymous disc.
+- ~~Replace with something new — a **CD or vinyl**.~~ CD: flat disc with an iridescent sheen, a
+  square hole punched through its right rim, on a near-black plate. Vinyl was drawn first and
+  dropped.
+- **The sheen is a sanctioned exception to the no-gradient rule, and it is icon-only.** That rule
+  governs UI chrome (`.tint(.white)`, no colored chrome) and still holds everywhere else — a CD
+  without its sheen is just an anonymous disc. Do not "fix" this icon by flattening it.
+- The square straddles the rim by choice. It eats part of the silhouette, so the disc reads a
+  little like a "C" — that was reviewed and kept.
 - Regenerate with `Tools/makeicon.swift` (not in any target; see the header for the command).
+  Knobs: `SQ` (square size), `SQX` (its distance from centre; 360 = on the rim), `FLAT=1` for the
+  monotone no-sheen disc, and `vinyl` as the style argument for the old one.
 
 ## Likes / favorites
 
