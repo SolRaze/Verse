@@ -28,7 +28,7 @@ schemes:
       targets:
         Verse: all
     test:
-      targets: [VerseTests]
+      targets: [VerseTests, VerseUITests]
 
 targets:
   Verse:
@@ -97,5 +97,17 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
     sources: [Tests]
+    dependencies:
+      - target: Verse
+
+  # Only for gestures no unit test can observe — the interactive pop (issue #5). Everything
+  # testable without a touch stays in VerseTests, which is far faster.
+  VerseUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    sources: [UITests]
     dependencies:
       - target: Verse
