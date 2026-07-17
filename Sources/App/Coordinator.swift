@@ -34,7 +34,9 @@ final class Coordinator: ObservableObject {
     let player = Player()
     let airPlayer = AirPlayVideoPlayer()
 
-    private unowned let library: LibraryStore
+    // Strong, not unowned: `start` runs inside a detached Task, so a play can outlive whoever
+    // created the store, and LibraryStore holds no reference back — there's no cycle to break.
+    private let library: LibraryStore
 
     var upNext: [LibraryItem] {
         queue.indices.contains(queueIndex + 1) ? Array(queue[(queueIndex + 1)...]) : []
@@ -137,6 +139,7 @@ final class Coordinator: ObservableObject {
         lastError = nil
         nowTitle = item.title
         nowArtist = item.artist
+        library.recordPlay(item)
         defer { busy = false }
 
         do {

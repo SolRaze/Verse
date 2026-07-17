@@ -22,6 +22,11 @@ struct LibraryItem: Codable, Identifiable, Hashable {
     /// before this field decode cleanly (nil sorts oldest).
     var dateAdded: Date?
 
+    /// Plays, counted at the moment playback is started. Powers Home's "most played" and, later,
+    /// Wrapped. Defaulted so libraries saved before these fields decode cleanly.
+    var playCount: Int = 0
+    var lastPlayed: Date?
+
     /// YouTube items get a free thumbnail from the video id; local files show an icon.
     var thumbnailURL: URL? {
         guard case let .youtube(watchURL) = source else { return nil }
@@ -328,6 +333,34 @@ final class LibraryStore: ObservableObject {
 
     func update(_ item: LibraryItem) {
         if let i = items.firstIndex(where: { $0.id == item.id }) { items[i] = item; save() }
+    }
+
+    /// Count a play. Silently ignores items that aren't in the library — remote playlist entries
+    /// are synthesised per play and have ids that were never stored.
+    func recordPlay(_ item: LibraryItem) {
+        guard let i = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[i].playCount += 1
+        items[i].lastPlayed = Date()
+        save()
+    }
+
+    /// Folders that directly hold tracks — this library's notion of an album — ranked by total
+    /// plays. Parent folders are excluded so a play isn't counted twice up the tree.
+    /// ponytail: rescans on every call; it's a personal library and Home renders on appear.
+    func mostPlayedAlbums(limit: Int = 6) -> [(path: [String], plays: Int)] {
+        allFolders()
+            .map { ($0, children(of: $0).items.reduce(0) { $0 + $1.playCount }) }
+            .filter { $0.1 > 0 }
+            .sorted { $0.1 > $1.1 }
+            .prefix(limit)
+            .map { (path: $0.0, plays: $0.1) }
+    }
+
+    func mostPlayedTracks(limit: Int = 6) -> [LibraryItem] {
+        items.filter { $0.playCount > 0 }
+            .sorted { $0.playCount > $1.playCount }
+            .prefix(limit)
+            .map { $0 }
     }
 
     func remove(_ item: LibraryItem) {

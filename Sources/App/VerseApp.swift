@@ -14,7 +14,7 @@ struct VerseApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryView()
+            RootView()
                 .environmentObject(library)
                 .environmentObject(playlists)
                 .environmentObject(coordinator)

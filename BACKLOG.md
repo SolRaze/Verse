@@ -5,15 +5,22 @@ Design north star: Apple's own apps (Music, Files) — take inspiration from the
 
 ---
 
-## Navigation: Home / Library tabs
+## Navigation: Home / Library tabs — **SHIPPED** (2026-07-17)
 
-- Move today's single screen into a **Library** tab.
-- New **Home** tab: big `Music` title (Files-app style), search bar beneath it, then
-  playlists, most-played albums, most-played tracks — a well-organized, "smart" landing page.
-- Bottom tab bar for Home + Library; room to suggest more tabs later.
-- Fold the options/burger menu into `+`, change that icon to **three dots**.
+- ~~Move today's single screen into a **Library** tab.~~
+- ~~New **Home** tab: big `Music` title, search bar beneath, playlists, most-played albums,
+  most-played tracks.~~ `Sources/App/HomeView.swift`.
+- ~~Bottom tab bar for Home + Library~~ — `Sources/App/RootView.swift`, which also owns the
+  mini player and the player sheet so they survive tab switches and navigation.
+- ~~Fold the options/burger menu into `+`, change that icon to **three dots**.~~ One
+  `ellipsis.circle` menu on the Library tab.
+- Play-count tracking landed with it: `playCount` / `lastPlayed` on `LibraryItem`, counted in
+  `Coordinator.start`. This is the data Wrapped needs too.
 
-Needs play-count tracking (see Wrapped below) before "most played" is real.
+"Album" is a folder that directly holds tracks — this library has no album tag, and the folder
+tree is the organization. Revisit if real album metadata ever appears.
+
+Still open here: more tabs (Locations, per Jellyfin below).
 
 ## Now Playing redesign
 
@@ -29,9 +36,12 @@ Needs play-count tracking (see Wrapped below) before "most played" is real.
 - **Play button on the left**; cast/AirPlay also left.
 - **Swipe for next / previous**.
 
-## App icon
+## App icon — **SHIPPED** (2026-07-17)
 
-- Replace with something new — a **CD or vinyl**.
+- ~~Replace with something new — a **CD or vinyl**.~~ Vinyl: white disc, cut grooves, monotone
+  on a near-black plate. CD was drawn and rejected — its identity is the iridescent sheen, and
+  gradients are banned, which leaves an anonymous disc.
+- Regenerate with `Tools/makeicon.swift` (not in any target; see the header for the command).
 
 ## Likes / favorites
 
