@@ -74,6 +74,22 @@ if style == "vinyl" {
                     saturation: 0.42, brightness: 1, alpha: 1).setFill()
             wedge.fill()
         }
+
+        // Diffraction striations over the sheen: vertical lines at three scales, so the banding
+        // repeats coarse-inside-fine rather than reading as one even comb. Strongest through the
+        // centre and fading toward the rim.
+        NSGraphicsContext.saveGraphicsState()
+        circle(360).addClip()
+        for (spacing, baseAlpha) in [(96.0, 0.20), (33.0, 0.13), (11.0, 0.08)] {
+            var x = -360.0
+            while x <= 360 {
+                let d = abs(x) / 360                     // 0 at centre, 1 at the rim
+                NSColor(calibratedWhite: 1, alpha: baseAlpha * (1 - d * 0.85)).setFill()
+                NSRect(x: c.x + x, y: c.y - 360, width: spacing * 0.3, height: 720).fill()
+                x += spacing
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     // Square sticker-hole, centred on the disc's right rim. Plate-coloured, so it reads as a
@@ -84,10 +100,20 @@ if style == "vinyl" {
     // the rim (chosen), below ~300 it sits inside the disc, and it must clear the centre hole
     // (r=150) or the two merge into a keyhole.
     let env = ProcessInfo.processInfo.environment
-    let s = CGFloat(env["SQ"].flatMap(Double.init) ?? 187)
+    let s = CGFloat(env["SQ"].flatMap(Double.init) ?? 240)
     let dx = CGFloat(env["SQX"].flatMap(Double.init) ?? 360)
+    let sq = NSRect(x: c.x + dx - s / 2, y: c.y - s / 2, width: s, height: s)
+
+    // Transparent, but outlined — the square has to read AS a square. Plate-coloured fill alone
+    // is invisible against the plate, so it only ever looked like a bite out of the disc (the
+    // "C"). The stroke gives it edges on both the disc and the plate, so it reads as a
+    // see-through square laid over the rim.
     plate.setFill()
-    NSRect(x: c.x + dx - s / 2, y: c.y - s / 2, width: s, height: s).fill()
+    sq.fill()
+    ink.setStroke()
+    let outline = NSBezierPath(rect: sq)
+    outline.lineWidth = CGFloat(env["SQW"].flatMap(Double.init) ?? 12)
+    outline.stroke()
 
     // Centre hole: white ring around a plate-coloured bore.
     plate.setFill()
