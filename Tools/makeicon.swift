@@ -54,12 +54,42 @@ if style == "vinyl" {
     ink.setFill()
     circle(16).fill()       // spindle hole
 } else {
-    for r in [300.0, 288.0] {
-        let g = circle(r)
-        g.lineWidth = 3
-        NSColor(calibratedWhite: 0.11, alpha: 0.45).setStroke()
-        g.stroke()
+    // Iridescent sheen — the project's ONE sanctioned gradient, icon only. The no-gradient rule
+    // governs UI chrome (.tint(.white), no colored chrome); nothing in the app draws like this.
+    // A CD without its sheen is an anonymous disc, which is why the flat version was rejected.
+    //
+    // Conic sweep built from wedges by hand: CGGradient does axial and radial only, so there is
+    // no conic primitive to reach for. Held below full saturation so it still reads as a disc
+    // rather than a pinwheel. FLAT=1 renders the ridge-less monotone disc instead.
+    if ProcessInfo.processInfo.environment["FLAT"] == nil {
+        let steps = 720
+        for i in 0..<steps {
+            let a0 = Double(i) / Double(steps) * 360, a1 = Double(i + 1) / Double(steps) * 360
+            let wedge = NSBezierPath()
+            wedge.move(to: c)
+            // +0.5° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
+            wedge.appendArc(withCenter: c, radius: 360, startAngle: a0, endAngle: a1 + 0.5)
+            wedge.close()
+            NSColor(calibratedHue: CGFloat(i) / CGFloat(steps),
+                    saturation: 0.42, brightness: 1, alpha: 1).setFill()
+            wedge.fill()
+        }
     }
+
+    // Square sticker-hole, centred on the disc's right rim. Plate-coloured, so it reads as a
+    // square punched clean through the disc — app icons can't carry real alpha. The half that
+    // falls beyond the rim is plate-on-plate and invisible, leaving a bite out of the edge.
+    // Tuning knobs — this is a drawing, and the numbers only settle by looking at it.
+    // SQ = square size. SQX = distance of its centre from the disc's centre; at 360 it straddles
+    // the rim (chosen), below ~300 it sits inside the disc, and it must clear the centre hole
+    // (r=150) or the two merge into a keyhole.
+    let env = ProcessInfo.processInfo.environment
+    let s = CGFloat(env["SQ"].flatMap(Double.init) ?? 187)
+    let dx = CGFloat(env["SQX"].flatMap(Double.init) ?? 360)
+    plate.setFill()
+    NSRect(x: c.x + dx - s / 2, y: c.y - s / 2, width: s, height: s).fill()
+
+    // Centre hole: white ring around a plate-coloured bore.
     plate.setFill()
     circle(150).fill()
     ink.setFill()
