@@ -41,17 +41,17 @@ Still open here: more tabs (Locations, per Jellyfin below).
 
 ## App icon — **SHIPPED** (2026-07-17)
 
-- ~~Replace with something new — a **CD or vinyl**.~~ CD: flat disc with an iridescent sheen, a
-  square hole punched through its right rim, on a near-black plate. Vinyl was drawn first and
-  dropped.
-- **The sheen is a sanctioned exception to the no-gradient rule, and it is icon-only.** That rule
-  governs UI chrome (`.tint(.white)`, no colored chrome) and still holds everywhere else — a CD
-  without its sheen is just an anonymous disc. Do not "fix" this icon by flattening it.
-- The square straddles the rim by choice. It eats part of the silhouette, so the disc reads a
-  little like a "C" — that was reviewed and kept.
+- ~~Replace with something new — a **CD or vinyl**.~~ CD after **`reference.jpg`** (the Yeezus
+  cover): dark disc, vivid iridescence through the left and right sectors, near-black through top
+  and bottom, soft radial streaks, and the solid red tape square across the right rim. Vinyl was
+  drawn first and dropped.
+- **The sheen and the red square are sanctioned exceptions to the no-gradient / monotone rules,
+  and they are icon-only.** Those rules govern UI chrome (`.tint(.white)`, no colored chrome) and
+  still hold everywhere else. Do not "fix" this icon by flattening or de-colouring it.
+- `reference.jpg` in the repo root is the target. Compare against it before changing the drawing.
 - Regenerate with `Tools/makeicon.swift` (not in any target; see the header for the command).
-  Knobs: `SQ` (square size), `SQX` (its distance from centre; 360 = on the rim), `FLAT=1` for the
-  monotone no-sheen disc, and `vinyl` as the style argument for the old one.
+  Knobs: `SQ` (square size), `SQX` (distance from centre; 310 fits, 360 runs off the icon edge),
+  `SPOKES` (streak count), `FLAT=1` for a no-sheen disc, `vinyl` as the style arg for the old one.
 
 ## Likes / favorites
 

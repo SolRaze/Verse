@@ -71,44 +71,45 @@ if style == "vinyl" {
     // no conic primitive to reach for. Held below full saturation so it still reads as a disc
     // rather than a pinwheel. FLAT=1 renders the ridge-less monotone disc instead.
     if ProcessInfo.processInfo.environment["FLAT"] == nil {
-        // Silver base. A real disc is mostly plain metal — the rainbow only shows where light
-        // catches it, so colour everywhere reads as a pinwheel, not a CD.
-        NSColor(calibratedWhite: 0.84, alpha: 1).setFill()
-        circle(360).fill()
-
+        // Sheen matched to reference.jpg: the disc is DARK, near-black through the top and
+        // bottom, with vivid iridescence blazing through the left and right sectors. A pale
+        // silver disc with pastel arcs is the opposite of how a lit CD actually photographs.
         NSGraphicsContext.saveGraphicsState()
         circle(360).addClip()
 
-        // Two opposing arcs of iridescence, falling off to bare silver between them.
-        let steps = 720
+        let steps = 1440
         for i in 0..<steps {
             let ang = Double(i) / Double(steps) * 360
-            let m = max(sheen(ang, around: 65), sheen(ang, around: 245))
-            guard m > 0.01 else { continue }
+            // Two lobes, left and right; dark bands survive at top and bottom.
+            let m = max(sheen(ang, around: 0, width: 78), sheen(ang, around: 180, width: 78))
             let wedge = NSBezierPath()
             wedge.move(to: c)
             // +0.5° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
             wedge.appendArc(withCenter: c, radius: 360,
                             startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
             wedge.close()
-            NSColor(calibratedHue: CGFloat(ang / 360), saturation: 0.6, brightness: 1,
-                    alpha: CGFloat(m) * 0.85).setFill()
+            // Hue runs two full cycles around the disc, so each lit sector carries a whole
+            // spectrum rather than one flat tint.
+            NSColor(calibratedHue: CGFloat((ang / 180).truncatingRemainder(dividingBy: 1)),
+                    saturation: CGFloat(0.9 * m),
+                    brightness: CGFloat(0.16 + 0.84 * m), alpha: 1).setFill()
             wedge.fill()
         }
 
-        // Radial streaks, following the sheen — diffraction runs out from the spindle, not
-        // across the disc. Few and soft on purpose; a dense comb turns to mush at 60pt.
-        let spokes = Int(ProcessInfo.processInfo.environment["SPOKES"].flatMap(Int.init) ?? 30)
+        // Radial streaks out from the spindle, only where the light is.
+        // Kept soft: in the reference the colour does the work and the streaking is barely
+        // there. Whiter or wider than this and it reads as a pinwheel again.
+        let spokes = Int(ProcessInfo.processInfo.environment["SPOKES"].flatMap(Int.init) ?? 44)
         for k in 0..<spokes {
             let ang = Double(k) / Double(spokes) * 360
-            let m = max(sheen(ang, around: 65), sheen(ang, around: 245))
-            guard m > 0.06 else { continue }
+            let m = max(sheen(ang, around: 0, width: 78), sheen(ang, around: 180, width: 78))
+            guard m > 0.08 else { continue }
             let r = ang * .pi / 180
             let streak = NSBezierPath()
             streak.move(to: NSPoint(x: c.x + cos(r) * 150, y: c.y + sin(r) * 150))
             streak.line(to: NSPoint(x: c.x + cos(r) * 360, y: c.y + sin(r) * 360))
-            streak.lineWidth = 7
-            NSColor(calibratedWhite: 1, alpha: CGFloat(m) * 0.45).setStroke()
+            streak.lineWidth = 4
+            NSColor(calibratedWhite: 1, alpha: CGFloat(m) * 0.18).setStroke()
             streak.stroke()
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -127,11 +128,9 @@ if style == "vinyl" {
     let dx = CGFloat(env["SQX"].flatMap(Double.init) ?? 310)
     let sq = NSRect(x: c.x + dx - s / 2, y: c.y - s / 2, width: s, height: s)
 
-    // Solid, no outline. White rather than plate-coloured: a plate-coloured square would just
-    // be a hole punched through the disc (the "C"), whereas white reads as a square laid on top
-    // — strongly against the dark plate on its outboard half, softly against the silver on its
-    // inboard half.
-    ink.setFill()
+    // Solid red tape, per reference.jpg. Not plate-coloured: that would be a hole punched
+    // through the disc, which is what made the icon read as a "C".
+    NSColor(calibratedRed: 0.94, green: 0.14, blue: 0.11, alpha: 1).setFill()
     sq.fill()
 
     // Centre hole: white ring around a plate-coloured bore.

@@ -12,10 +12,12 @@ the music playback and its recalling feature takes time to load content, change 
 > - slow load → **ISSUE #4** (suspects: LRCLIB lookup before play, YouTube re-extraction, artwork backfill)
 >   — 2026-07-17: root cause confirmed on #4. Play start awaits lyrics + artwork before
 >   `player.load`, and neither caches a miss, so a track with no lyrics re-hits LRCLIB every play.
-> - cd/vinyl icon → **DONE** (2026-07-17). CD: flat, iridescent sheen, square hole punched through
->   the right rim. Vinyl drawn first and dropped. The sheen is a sanctioned **icon-only** exception
->   to the no-gradient rule — that rule governs UI chrome and still holds everywhere else.
->   `Tools/makeicon.swift` regenerates it (knobs: `SQ`, `SQX`, `FLAT=1`, style `vinyl`).
+> - cd/vinyl icon → **DONE** (2026-07-17). CD after `reference.jpg` (Yeezus cover): dark disc,
+>   iridescence through the left/right sectors, near-black top and bottom, soft radial streaks,
+>   solid red tape square across the right rim. Vinyl drawn first and dropped.
+>   The sheen and the red square are sanctioned **icon-only** exceptions to the no-gradient /
+>   monotone rules — those govern UI chrome and still hold everywhere else.
+>   `Tools/makeicon.swift` regenerates it (knobs: `SQ`, `SQX`, `SPOKES`, `FLAT=1`, style `vinyl`).
 > - Apple design philosophy → **BACKLOG** (noted as the north star)
 
 **now playing** move a minimize arrow instead of bat display album on top in the center and remove that bar, and add burger menu on right with song description info, like and share and view track and view artist, disable rounded corners on album art, move it from even slightly more, move the airplay icon to bottom and add the glass transparency to the play button, also in mini player make it a bit **capsule** like with play button on left with same ui transparency  and swipe for next music and previous, and cast / airplay to the left
