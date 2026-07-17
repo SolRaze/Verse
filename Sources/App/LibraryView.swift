@@ -35,16 +35,19 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack {
-            List(selection: $selection) {
-                if search.isEmpty {
-                    remotePlaylistsSection
-                    folderContents(path: [])          // top-level folders + loose items
+            // The selection binding and the editMode environment each install a pan gesture, and
+            // `navigationDestination` below inherits this chain — so an always-on editMode here
+            // leaked into FolderView and ate its first interactive pop no matter what FolderView
+            // did locally. Wire both up only once the user actually enters Select.
+            Group {
+                if editMode == .active {
+                    List(selection: $selection) { rootRows }
+                        .environment(\.editMode, $editMode)
                 } else {
-                    searchResults
+                    List { rootRows }
                 }
             }
             .listStyle(.insetGrouped)
-            .environment(\.editMode, $editMode)
             .searchable(text: $search)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -58,41 +61,39 @@ struct LibraryView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if editMode == .active {
                         Button("Done") { editMode = .inactive; selection = [] }
-                    } else {
-                        Menu {
-                            Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
-                            Button { newFolderName = ""; newFolderParent = [] } label: {
-                                Label("New Folder", systemImage: "folder.badge.plus")
-                            }
-                            SortMenu()
-                        } label: { Image(systemName: "ellipsis.circle") }
                     }
                 }
+                // One menu, not two: the import (+) and options (burger) menus are folded
+                // together under three dots.
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button { showingImporter = true } label: {
                             Label("Open from Files", systemImage: "folder")
                         }
-                        Divider()
                         ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
                             Button { linkText = ""; pasteSource = src } label: {
                                 Label(src.rawValue, systemImage: src.icon)
                             }
                         }
+                        Divider()
+                        Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
+                        Button { newFolderName = ""; newFolderParent = [] } label: {
+                            Label("New Folder", systemImage: "folder.badge.plus")
+                        }
+                        SortMenu()
                     } label: {
-                        Image(systemName: "plus")
+                        Image(systemName: "ellipsis.circle")
                     }
                     .disabled(addingLink)
                 }
             }
             .overlay { emptyState }
             .overlay { if addingLink || coordinator.busy { ProgressView().controlSize(.large) } }
+            // The mini player lives on the tab shell (RootView), not here — it has to survive
+            // navigation and tab switches. Only the edit-mode bar is this screen's business.
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 0) {
-                    if editMode == .active {
-                        BatchBar(selection: $selection, editMode: $editMode, moveRequest: $moveRequest)
-                    }
-                    MiniPlayerBar()
+                if editMode == .active {
+                    BatchBar(selection: $selection, editMode: $editMode, moveRequest: $moveRequest)
                 }
             }
             .fileImporter(isPresented: $showingImporter,
@@ -135,7 +136,8 @@ struct LibraryView: View {
                 }
                 Button("Cancel", role: .cancel) { renamingFolder = nil }
             }
-            .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
+            // The player sheet is app-level (RootView) — a play started from the Home tab has to
+            // present it too.
             .sheet(item: $editing) { item in EditItemSheet(item: item) }
             .sheet(item: $infoItem) { item in InfoSheet(item: item) }
             .sheet(item: $moveRequest) { req in MoveSheet(request: req) }
@@ -145,6 +147,15 @@ struct LibraryView: View {
     }
 
     // MARK: sections
+
+    @ViewBuilder private var rootRows: some View {
+        if search.isEmpty {
+            remotePlaylistsSection
+            folderContents(path: [])          // top-level folders + loose items
+        } else {
+            searchResults
+        }
+    }
 
     @ViewBuilder private var remotePlaylistsSection: some View {
         if !playlists.playlists.isEmpty {
@@ -255,7 +266,7 @@ struct FolderPath: Hashable {
 
 // MARK: - Folder screen (recursive)
 
-private struct FolderView: View {
+struct FolderView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var coordinator: Coordinator
     @State private var editing: LibraryItem?
@@ -358,11 +369,8 @@ private struct FolderView: View {
             Button("Cancel", role: .cancel) { renamingFolder = nil }
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 0) {
-                if editMode == .active {
-                    BatchBar(selection: $selection, editMode: $editMode, moveRequest: $moveRequest)
-                }
-                MiniPlayerBar()
+            if editMode == .active {
+                BatchBar(selection: $selection, editMode: $editMode, moveRequest: $moveRequest)
             }
         }
         .sheet(item: $editing) { item in EditItemSheet(item: item) }
@@ -376,7 +384,7 @@ private struct FolderView: View {
 /// "1 item" / "12 items".
 func itemCountText(_ n: Int) -> String { "\(n) item\(n == 1 ? "" : "s")" }
 
-private struct FolderRow: View {
+struct FolderRow: View {
     let name: String
     let count: Int
 
@@ -394,7 +402,7 @@ private struct FolderRow: View {
     }
 }
 
-private struct ItemRow: View {
+struct ItemRow: View {
     // Observe the store so rows re-render when background artwork extraction finishes.
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var coordinator: Coordinator
@@ -442,7 +450,7 @@ private struct ItemRow: View {
     }
 }
 
-private struct PlaylistRow: View {
+struct PlaylistRow: View {
     let playlist: RemotePlaylist
 
     private var icon: String {
@@ -470,7 +478,7 @@ private struct PlaylistRow: View {
 
 // MARK: - Remote playlist detail
 
-private struct PlaylistDetailView: View {
+struct PlaylistDetailView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var playlists: PlaylistStore
     @EnvironmentObject var coordinator: Coordinator
@@ -526,13 +534,12 @@ private struct PlaylistDetailView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) { MiniPlayerBar() }
     }
 }
 
 // MARK: - Mini player
 
-private struct MiniPlayerBar: View {
+struct MiniPlayerBar: View {
     @EnvironmentObject var coordinator: Coordinator
 
     var body: some View {

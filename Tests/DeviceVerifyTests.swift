@@ -154,6 +154,65 @@ final class DeviceVerifyTests: XCTestCase {
         XCTAssertTrue(store.allFolders().contains([dest]))
     }
 
+    // MARK: Play counts -> Home's shelves
+
+    @MainActor
+    func testPlayCountsRankHomeShelves() throws {
+        // Two albums under one root: A/ (a1, a2), B/ (b1).
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Play-\(UUID().uuidString)")
+        let a = root.appendingPathComponent("A"), b = root.appendingPathComponent("B")
+        try FileManager.default.createDirectory(at: a, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: b, withIntermediateDirectories: true)
+        let wav = try makeWAV()
+        try Data(contentsOf: wav).write(to: a.appendingPathComponent("a1.mp3"))
+        try Data(contentsOf: wav).write(to: a.appendingPathComponent("a2.mp3"))
+        try Data(contentsOf: wav).write(to: b.appendingPathComponent("b1.mp3"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = LibraryStore()
+        let rootName = root.lastPathComponent
+        store.add(pickedURLs: [root])
+        defer { store.removeFolder([rootName]) }
+
+        // Scoped to this test's own items — the store persists to shared Documents, so anything
+        // a previous run left behind would otherwise show up in these rankings.
+        // Qualified: DeveloperToolsSupport exports its own `LibraryItem`, so the bare name is
+        // ambiguous in type position.
+        func myTracks() -> [Verse.LibraryItem] {
+            store.mostPlayedTracks(limit: 50).filter { $0.folders.first == rootName }
+        }
+        func myAlbums() -> [(path: [String], plays: Int)] {
+            store.mostPlayedAlbums(limit: 50).filter { $0.path.first == rootName }
+        }
+
+        XCTAssertTrue(myTracks().isEmpty, "nothing played yet")
+        XCTAssertTrue(myAlbums().isEmpty, "no album ranks before a play")
+
+        let a1 = try XCTUnwrap(store.children(of: [rootName, "A"]).items.first { $0.title == "a1" })
+        let b1 = try XCTUnwrap(store.children(of: [rootName, "B"]).items.first { $0.title == "b1" })
+        store.recordPlay(b1)
+        store.recordPlay(a1)
+        store.recordPlay(a1)
+
+        XCTAssertEqual(myTracks().map(\.title), ["a1", "b1"], "ranked by play count, descending")
+        XCTAssertEqual(myTracks().first?.playCount, 2)
+        XCTAssertNotNil(myTracks().first?.lastPlayed)
+
+        // A (2 plays) outranks B (1). The import root holds no tracks directly, so it must not
+        // rank — otherwise every play would count twice, once for the album and once for its parent.
+        XCTAssertEqual(myAlbums().map { $0.path.last }, ["A", "B"])
+        XCTAssertEqual(myAlbums().first?.plays, 2)
+        XCTAssertFalse(myAlbums().contains { $0.path == [rootName] }, "parent folder must not rank")
+
+        // Remote playlist entries are synthesised per play and were never stored — counting one
+        // must be a no-op, not a crash.
+        store.recordPlay(LibraryItem(title: "ghost", artist: "",
+                                     source: .youtube(watchURL: URL(string: "https://y/x")!),
+                                     isVideo: false))
+        XCTAssertEqual(myTracks().count, 2, "an unknown item doesn't enter the library")
+    }
+
     // MARK: Shuffle + repeat mode
 
     @MainActor
