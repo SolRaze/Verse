@@ -90,21 +90,31 @@ if style == "vinyl" {
         // Hue is restricted to the cool half (green -> cyan -> violet). The full spectrum put
         // red and magenta directly behind the red square, which is what made the red read as
         // muddy; in the reference the disc is green where the tape lands.
+        // Posterised: intensity and hue are QUANTISED into discrete steps, so every colour is a
+        // hard-edged shape and there is no gradation anywhere. Adjacent wedges that quantise to
+        // the same colour merge into one visible form — the shapes follow the sheen's lobes, so
+        // this doesn't collapse into the equal-wedge pie chart that failed earlier.
         let divisions = [30.0, 90, 150, 210, 270, 330]
+        let levels = Double(ProcessInfo.processInfo.environment["LEVELS"].flatMap(Double.init) ?? 4)
+        let hues = Double(ProcessInfo.processInfo.environment["HUES"].flatMap(Double.init) ?? 3)
         let steps = 1440
         for i in 0..<steps {
             let ang = Double(i) / Double(steps) * 360
             var m = max(sheen(ang, around: 0, width: 78), sheen(ang, around: 180, width: 78))
             for d in divisions { m *= 1 - 0.92 * sheen(ang, around: d, width: 9) }
+            m = (m * (levels - 1)).rounded() / (levels - 1)            // tonal steps
+            let t = ((ang / 180).truncatingRemainder(dividingBy: 1) * (hues - 1)).rounded()
+                / (hues - 1)                                           // hue steps, two cycles
             let wedge = NSBezierPath()
             wedge.move(to: c)
             // +0.5° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
             wedge.appendArc(withCenter: c, radius: 360,
                             startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
             wedge.close()
-            let t = (ang / 180).truncatingRemainder(dividingBy: 1)     // two cycles
+            // Saturation stays FULL on every lit step — scaling it with intensity turned the
+            // middle tones into muddy grey-teal. Only brightness carries the tonal separation.
             NSColor(calibratedHue: CGFloat(0.28 + 0.45 * t),
-                    saturation: CGFloat(0.75 * m),
+                    saturation: m == 0 ? 0 : 0.72,
                     brightness: CGFloat(0.18 + 0.8 * m), alpha: 1).setFill()
             wedge.fill()
         }
@@ -129,16 +139,30 @@ if style == "vinyl" {
     let sq = NSRect(x: left, y: c.y - height / 2, width: right - left, height: height)
 
     // Solid red tape, per reference.jpg. Not plate-coloured: that would be a hole punched
-    // through the disc, which is what made the icon read as a "C".
+    // through the disc, which is what made the icon read as a "C". Only the two LEFT corners
+    // round — the right pair bleeds off the icon edge, so rounding them would show as a notch.
+    let cr = CGFloat(env["SQC"].flatMap(Double.init) ?? 34)
+    let tape = NSBezierPath()
+    tape.move(to: NSPoint(x: sq.maxX, y: sq.minY))
+    tape.line(to: NSPoint(x: sq.minX + cr, y: sq.minY))
+    tape.appendArc(withCenter: NSPoint(x: sq.minX + cr, y: sq.minY + cr), radius: cr,
+                   startAngle: 270, endAngle: 180, clockwise: true)
+    tape.line(to: NSPoint(x: sq.minX, y: sq.maxY - cr))
+    tape.appendArc(withCenter: NSPoint(x: sq.minX + cr, y: sq.maxY - cr), radius: cr,
+                   startAngle: 180, endAngle: 90, clockwise: true)
+    tape.line(to: NSPoint(x: sq.maxX, y: sq.maxY))
+    tape.close()
     NSColor(calibratedRed: 0.94, green: 0.14, blue: 0.11, alpha: 1).setFill()
-    sq.fill()
+    tape.fill()
 
-    // Centre hole: white ring around a plate-coloured bore.
-    plate.setFill()
+    // Centre hub matches the sheen's darkest tone (m = 0 -> brightness 0.18), not the plate —
+    // a plate-coloured bore reads as another hole, this reads as the disc's own dark centre.
+    let hub = NSColor(calibratedWhite: 0.18, alpha: 1)
+    hub.setFill()
     circle(150).fill()
     ink.setFill()
     circle(118).fill()
-    plate.setFill()
+    hub.setFill()
     circle(86).fill()
 }
 
