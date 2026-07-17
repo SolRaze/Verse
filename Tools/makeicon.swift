@@ -77,40 +77,29 @@ if style == "vinyl" {
         NSGraphicsContext.saveGraphicsState()
         circle(360).addClip()
 
-        let steps = 1440
-        for i in 0..<steps {
-            let ang = Double(i) / Double(steps) * 360
-            // Two lobes, left and right; dark bands survive at top and bottom.
-            let m = max(sheen(ang, around: 0, width: 78), sheen(ang, around: 180, width: 78))
+        // Clean and flat: a smooth sweep with NO radial streaks. The streaking was the noise —
+        // removing it did more for legibility than any amount of banding. Structure still follows
+        // reference.jpg: lit through left and right, dark through top and bottom.
+        //
+        // BANDS is the wedge count: the default is high enough to read as continuous, and
+        // dropping it to ~20 posterises the disc into a pinwheel (tried; worse).
+        let bands = Int(ProcessInfo.processInfo.environment["BANDS"].flatMap(Int.init) ?? 1440)
+        for b in 0..<bands {
+            let a0 = Double(b) / Double(bands) * 360
+            let a1 = Double(b + 1) / Double(bands) * 360
+            let mid = (a0 + a1) / 2
+            let m = max(sheen(mid, around: 0, width: 78), sheen(mid, around: 180, width: 78))
             let wedge = NSBezierPath()
             wedge.move(to: c)
-            // +0.5° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
-            wedge.appendArc(withCenter: c, radius: 360,
-                            startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
+            // +0.4° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
+            wedge.appendArc(withCenter: c, radius: 360, startAngle: a0, endAngle: a1 + 0.4)
             wedge.close()
-            // Hue runs two full cycles around the disc, so each lit sector carries a whole
-            // spectrum rather than one flat tint.
-            NSColor(calibratedHue: CGFloat((ang / 180).truncatingRemainder(dividingBy: 1)),
-                    saturation: CGFloat(0.9 * m),
-                    brightness: CGFloat(0.16 + 0.84 * m), alpha: 1).setFill()
+            // Hue runs two cycles around the disc, so each lit sector carries a full spectrum
+            // rather than one flat tint.
+            NSColor(calibratedHue: CGFloat((mid / 180).truncatingRemainder(dividingBy: 1)),
+                    saturation: CGFloat(0.85 * m),
+                    brightness: CGFloat(0.17 + 0.83 * m), alpha: 1).setFill()
             wedge.fill()
-        }
-
-        // Radial streaks out from the spindle, only where the light is.
-        // Kept soft: in the reference the colour does the work and the streaking is barely
-        // there. Whiter or wider than this and it reads as a pinwheel again.
-        let spokes = Int(ProcessInfo.processInfo.environment["SPOKES"].flatMap(Int.init) ?? 44)
-        for k in 0..<spokes {
-            let ang = Double(k) / Double(spokes) * 360
-            let m = max(sheen(ang, around: 0, width: 78), sheen(ang, around: 180, width: 78))
-            guard m > 0.08 else { continue }
-            let r = ang * .pi / 180
-            let streak = NSBezierPath()
-            streak.move(to: NSPoint(x: c.x + cos(r) * 150, y: c.y + sin(r) * 150))
-            streak.line(to: NSPoint(x: c.x + cos(r) * 360, y: c.y + sin(r) * 360))
-            streak.lineWidth = 4
-            NSColor(calibratedWhite: 1, alpha: CGFloat(m) * 0.18).setStroke()
-            streak.stroke()
         }
         NSGraphicsContext.restoreGraphicsState()
     }
