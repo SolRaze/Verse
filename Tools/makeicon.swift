@@ -33,6 +33,15 @@ func circle(_ r: CGFloat) -> NSBezierPath {
     NSBezierPath(ovalIn: NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
 }
 
+/// How strongly the sheen shows at `ang`, peaking at `around` and falling to 0 by `width`.
+/// Wraps across 0/360.
+func sheen(_ ang: Double, around: Double, width: Double = 62) -> Double {
+    var d = abs(ang - around).truncatingRemainder(dividingBy: 360)
+    if d > 180 { d = 360 - d }
+    let t = d / width
+    return t >= 1 ? 0 : 1 - t * t
+}
+
 plate.setFill()
 NSRect(x: 0, y: 0, width: size, height: size).fill()
 ink.setFill()
@@ -62,32 +71,45 @@ if style == "vinyl" {
     // no conic primitive to reach for. Held below full saturation so it still reads as a disc
     // rather than a pinwheel. FLAT=1 renders the ridge-less monotone disc instead.
     if ProcessInfo.processInfo.environment["FLAT"] == nil {
+        // Silver base. A real disc is mostly plain metal — the rainbow only shows where light
+        // catches it, so colour everywhere reads as a pinwheel, not a CD.
+        NSColor(calibratedWhite: 0.84, alpha: 1).setFill()
+        circle(360).fill()
+
+        NSGraphicsContext.saveGraphicsState()
+        circle(360).addClip()
+
+        // Two opposing arcs of iridescence, falling off to bare silver between them.
         let steps = 720
         for i in 0..<steps {
-            let a0 = Double(i) / Double(steps) * 360, a1 = Double(i + 1) / Double(steps) * 360
+            let ang = Double(i) / Double(steps) * 360
+            let m = max(sheen(ang, around: 65), sheen(ang, around: 245))
+            guard m > 0.01 else { continue }
             let wedge = NSBezierPath()
             wedge.move(to: c)
             // +0.5° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
-            wedge.appendArc(withCenter: c, radius: 360, startAngle: a0, endAngle: a1 + 0.5)
+            wedge.appendArc(withCenter: c, radius: 360,
+                            startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
             wedge.close()
-            NSColor(calibratedHue: CGFloat(i) / CGFloat(steps),
-                    saturation: 0.42, brightness: 1, alpha: 1).setFill()
+            NSColor(calibratedHue: CGFloat(ang / 360), saturation: 0.6, brightness: 1,
+                    alpha: CGFloat(m) * 0.85).setFill()
             wedge.fill()
         }
 
-        // Diffraction striations over the sheen: vertical lines at three scales, so the banding
-        // repeats coarse-inside-fine rather than reading as one even comb. Strongest through the
-        // centre and fading toward the rim.
-        NSGraphicsContext.saveGraphicsState()
-        circle(360).addClip()
-        for (spacing, baseAlpha) in [(96.0, 0.20), (33.0, 0.13), (11.0, 0.08)] {
-            var x = -360.0
-            while x <= 360 {
-                let d = abs(x) / 360                     // 0 at centre, 1 at the rim
-                NSColor(calibratedWhite: 1, alpha: baseAlpha * (1 - d * 0.85)).setFill()
-                NSRect(x: c.x + x, y: c.y - 360, width: spacing * 0.3, height: 720).fill()
-                x += spacing
-            }
+        // Radial streaks, following the sheen — diffraction runs out from the spindle, not
+        // across the disc. Few and soft on purpose; a dense comb turns to mush at 60pt.
+        let spokes = Int(ProcessInfo.processInfo.environment["SPOKES"].flatMap(Int.init) ?? 30)
+        for k in 0..<spokes {
+            let ang = Double(k) / Double(spokes) * 360
+            let m = max(sheen(ang, around: 65), sheen(ang, around: 245))
+            guard m > 0.06 else { continue }
+            let r = ang * .pi / 180
+            let streak = NSBezierPath()
+            streak.move(to: NSPoint(x: c.x + cos(r) * 150, y: c.y + sin(r) * 150))
+            streak.line(to: NSPoint(x: c.x + cos(r) * 360, y: c.y + sin(r) * 360))
+            streak.lineWidth = 7
+            NSColor(calibratedWhite: 1, alpha: CGFloat(m) * 0.45).setStroke()
+            streak.stroke()
         }
         NSGraphicsContext.restoreGraphicsState()
     }
@@ -100,20 +122,17 @@ if style == "vinyl" {
     // the rim (chosen), below ~300 it sits inside the disc, and it must clear the centre hole
     // (r=150) or the two merge into a keyhole.
     let env = ProcessInfo.processInfo.environment
-    let s = CGFloat(env["SQ"].flatMap(Double.init) ?? 240)
-    let dx = CGFloat(env["SQX"].flatMap(Double.init) ?? 360)
+    let s = CGFloat(env["SQ"].flatMap(Double.init) ?? 300)
+    // 310, not 360: centred exactly on the rim, a square this size runs off the icon's edge.
+    let dx = CGFloat(env["SQX"].flatMap(Double.init) ?? 310)
     let sq = NSRect(x: c.x + dx - s / 2, y: c.y - s / 2, width: s, height: s)
 
-    // Transparent, but outlined — the square has to read AS a square. Plate-coloured fill alone
-    // is invisible against the plate, so it only ever looked like a bite out of the disc (the
-    // "C"). The stroke gives it edges on both the disc and the plate, so it reads as a
-    // see-through square laid over the rim.
-    plate.setFill()
+    // Solid, no outline. White rather than plate-coloured: a plate-coloured square would just
+    // be a hole punched through the disc (the "C"), whereas white reads as a square laid on top
+    // — strongly against the dark plate on its outboard half, softly against the silver on its
+    // inboard half.
+    ink.setFill()
     sq.fill()
-    ink.setStroke()
-    let outline = NSBezierPath(rect: sq)
-    outline.lineWidth = CGFloat(env["SQW"].flatMap(Double.init) ?? 12)
-    outline.stroke()
 
     // Centre hole: white ring around a plate-coloured bore.
     plate.setFill()
