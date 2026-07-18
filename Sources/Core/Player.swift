@@ -78,6 +78,20 @@ final class Player: NSObject, ObservableObject {
         snapshot()
     }
 
+    /// Late attach for lyrics/artwork that resolved after playback started (issue #4: sound
+    /// first, network after). No-op if the track changed while resolving.
+    func attach(lyrics: Lyrics?, artwork: UIImage?, forURL url: URL) {
+        guard current?.url == url else { return }
+        if let lyrics { self.lyrics = lyrics }
+        // Only first-time artwork republished — keeps the extra widget write off replays.
+        let newArt = current?.artwork == nil ? artwork : nil
+        if let newArt {
+            current?.artwork = newArt
+            snapshot()
+        }
+        nowPlaying.attach(lyrics: lyrics, artwork: newArt)
+    }
+
     /// Widget state. Written on track change and play/pause flips only — never per tick,
     /// widget reloads are budgeted.
     private func snapshot() {

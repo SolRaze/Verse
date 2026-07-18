@@ -36,10 +36,12 @@ enum Artwork {
     }
 
     /// Extract + cache. No-op if already done or the file carries no artwork.
+    /// A miss writes an empty file so the next play doesn't re-load AVAsset metadata (issue #4).
+    /// ponytail: the negative marker is permanent; "Fetch Metadata" clears it via invalidate().
     static func store(from mediaURL: URL, key: String) async {
         guard !exists(for: key) else { return }
         let asset = AVURLAsset(url: mediaURL)
-        guard let metadata = try? await asset.load(.metadata) else { return }
+        let metadata = (try? await asset.load(.metadata)) ?? []
         for item in metadata where item.commonKey == .commonKeyArtwork {
             guard let data = try? await item.load(.dataValue), let img = UIImage(data: data) else { continue }
             let thumb = img.preparingThumbnail(of: CGSize(width: 200, height: 200)) ?? img
@@ -49,5 +51,12 @@ enum Artwork {
             }
             return
         }
+        try? Data().write(to: file(for: key))
+    }
+
+    /// Drop the cached thumbnail (or a negative marker) so the next store() re-extracts.
+    static func invalidate(key: String) {
+        cache.removeObject(forKey: key as NSString)
+        try? FileManager.default.removeItem(at: file(for: key))
     }
 }

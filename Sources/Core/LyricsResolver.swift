@@ -16,7 +16,9 @@ enum LyricsResolver {
                         duration: TimeInterval?, cacheKey: String) async -> Lyrics? {
         let cacheFile = cacheDir.appendingPathComponent(cacheKey + ".lrc")
         if let cached = try? String(contentsOf: cacheFile, encoding: .utf8) {
-            return LRCParser.parse(cached)
+            // Empty file = cached miss: the whole chain came up dry once, don't re-hit LRCLIB
+            // on every play (issue #4). ponytail: permanent; delete the .lrc to retry a track.
+            return cached.isEmpty ? nil : LRCParser.parse(cached)
         }
 
         var found = sidecar(for: mediaURL)
@@ -33,6 +35,7 @@ enum LyricsResolver {
             try? raw.write(to: cacheFile, atomically: true, encoding: .utf8)
             return lyrics
         }
+        try? "".write(to: cacheFile, atomically: true, encoding: .utf8)  // negative cache
         return nil
     }
 
