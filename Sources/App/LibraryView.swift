@@ -18,6 +18,7 @@ struct LibraryView: View {
     @State private var folderNewName = ""
     @State private var selection = Set<UUID>()
     @State private var editMode: EditMode = .inactive
+    @State private var path = NavigationPath()
 
     /// The link kinds the + menu offers. `host` seeds a hint; `addLink` still routes by URL.
     enum LinkSource: String, Identifiable {
@@ -33,7 +34,7 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             // The selection binding and the editMode environment each install a pan gesture, and
             // `navigationDestination` below inherits this chain — so an always-on editMode here
             // leaked into FolderView and ate its first interactive pop no matter what FolderView
@@ -59,6 +60,10 @@ struct LibraryView: View {
             }
             .navigationDestination(for: CollectionKind.self) { CollectionPage(kind: $0) }
             .navigationDestination(for: ArtistRef.self) { ArtistPage(artist: $0) }
+            // Player-burger deep-links. onAppear covers the tab being built cold for the link
+            // (a lazy TabView child misses an onChange that fired before it existed).
+            .onChange(of: coordinator.deepLink) { _, _ in consumeDeepLink() }
+            .onAppear(perform: consumeDeepLink)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if editMode == .active {
@@ -172,6 +177,20 @@ struct LibraryView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Replace the stack with the deep-linked destination. `folder([])` = a loose root track:
+    /// popping to the root is the whole navigation.
+    private func consumeDeepLink() {
+        guard let link = coordinator.deepLink else { return }
+        coordinator.deepLink = nil
+        path = NavigationPath()
+        switch link {
+        case .folder(let components):
+            if !components.isEmpty { path.append(FolderPath(components)) }
+        case .artist(let name):
+            path.append(ArtistRef(name: name))
         }
     }
 

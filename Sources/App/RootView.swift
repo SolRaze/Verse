@@ -15,6 +15,9 @@ struct RootView: View {
         tabs
             .tabViewBottomAccessory { MiniPlayerBar() }
             .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
+            .onChange(of: coordinator.deepLink) { _, link in
+                if link != nil { tab = .library }
+            }
             .tint(.white)                 // monotone: one accent, no colored chrome
             .preferredColorScheme(.dark)
     }
