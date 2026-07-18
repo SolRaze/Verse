@@ -35,7 +35,7 @@ remove search bar from library and implement a template like format when importi
 > format when importing" — unclear what template means. Suggestions: (a) an import summary
 > sheet (what was found, where it goes, cover/metadata preview) before committing; (b) a
 > post-import "fetch metadata for all" pass; (c) naming templates like `Artist - Title` parsing.
-> Say which and it gets built.
+> 2026-07-18: user picked **(a) summary sheet** → **BACKLOG** (import flow), not built yet.
 
 even inside the fullscreen player, rework on all move the button positions check soundcloud and apple music for the inspiration if needed i have provideed screenshots as reference
 

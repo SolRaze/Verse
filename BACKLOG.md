@@ -59,11 +59,11 @@ Still open here: more tabs (Locations, per Jellyfin below).
   the same sort menu.
 - Still open: grid/list toggle, Downloads filter, "imports" shelf on Home.
 
-## Import flow "template" (inbox-2, needs a decision)
+## Import flow "template" — decided 2026-07-18, not built
 
-User wants "a template like format when importing", open to suggestions. Options offered:
-(a) import summary sheet before committing, (b) post-import bulk metadata pass, (c)
-`Artist - Title` filename parsing. Waiting on a pick. Related shipped piece: per-file
+Pick made: **(a) import summary sheet** — before committing an import, show what was found,
+where it goes, and a cover/metadata preview. Options (b) bulk metadata pass and (c)
+`Artist - Title` filename parsing were declined. Related shipped piece: per-file
 "Fetch Metadata" (embedded tags via AVAsset) in the hold menu; online lookup (MusicBrainz)
 not built.
 
