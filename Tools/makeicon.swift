@@ -95,8 +95,9 @@ if style == "vinyl" {
         // the same colour merge into one visible form — the shapes follow the sheen's lobes, so
         // this doesn't collapse into the equal-wedge pie chart that failed earlier.
         let divisions = [30.0, 90, 150, 210, 270, 330]
-        let levels = Double(ProcessInfo.processInfo.environment["LEVELS"].flatMap(Double.init) ?? 4)
-        let hues = Double(ProcessInfo.processInfo.environment["HUES"].flatMap(Double.init) ?? 3)
+        // Two hues, five tonal steps: fewer colours, more depth in the dark end (inbox note).
+        let levels = Double(ProcessInfo.processInfo.environment["LEVELS"].flatMap(Double.init) ?? 5)
+        let hues = Double(ProcessInfo.processInfo.environment["HUES"].flatMap(Double.init) ?? 2)
         let steps = 1440
         for i in 0..<steps {
             let ang = Double(i) / Double(steps) * 360
@@ -115,7 +116,7 @@ if style == "vinyl" {
             // middle tones into muddy grey-teal. Only brightness carries the tonal separation.
             NSColor(calibratedHue: CGFloat(0.28 + 0.45 * t),
                     saturation: m == 0 ? 0 : 0.72,
-                    brightness: CGFloat(0.18 + 0.8 * m), alpha: 1).setFill()
+                    brightness: CGFloat(0.12 + 0.86 * m), alpha: 1).setFill()
             wedge.fill()
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -130,10 +131,12 @@ if style == "vinyl" {
     // (r=150) or the two merge into a keyhole.
     // Proportions measured off reference.jpg rather than guessed. There the disc is 379px across
     // and the red is 167 x 203 — i.e. 0.44 of the disc wide, 0.54 tall, and TALLER THAN WIDE,
-    // not square. Its left edge starts about 0.34 of the radius out from centre.
+    // not square. Since the right edge here is pinned to the icon edge (1.42r from centre, vs
+    // 1.22r in the reference), the left edge sits at 1.42 - 0.88 = 0.54r to keep the reference's
+    // total width — 0.34r (the reference's left edge) made the tape read square.
     let env = ProcessInfo.processInfo.environment
     let height = CGFloat(env["SQH"].flatMap(Double.init) ?? 0.54) * 720
-    let left = c.x + CGFloat(env["SQL"].flatMap(Double.init) ?? 0.34) * 360
+    let left = c.x + CGFloat(env["SQL"].flatMap(Double.init) ?? 0.54) * 360
     // Stretched to the icon's right edge, so it bleeds off rather than floating.
     let right = CGFloat(env["SQR"].flatMap(Double.init) ?? Double(size))
     let sq = NSRect(x: left, y: c.y - height / 2, width: right - left, height: height)
@@ -155,9 +158,9 @@ if style == "vinyl" {
     NSColor(calibratedRed: 0.94, green: 0.14, blue: 0.11, alpha: 1).setFill()
     tape.fill()
 
-    // Centre hub matches the sheen's darkest tone (m = 0 -> brightness 0.18), not the plate —
+    // Centre hub matches the sheen's darkest tone (m = 0 -> brightness 0.12), not the plate —
     // a plate-coloured bore reads as another hole, this reads as the disc's own dark centre.
-    let hub = NSColor(calibratedWhite: 0.18, alpha: 1)
+    let hub = NSColor(calibratedWhite: 0.12, alpha: 1)
     hub.setFill()
     circle(150).fill()
     ink.setFill()
