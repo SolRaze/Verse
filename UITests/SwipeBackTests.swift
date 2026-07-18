@@ -14,6 +14,9 @@ final class SwipeBackTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
+        // The app boots on the Home tab; folders live in Library.
+        app.tabBars.buttons["Library"].tap()
+
         makeFolder(app)
         defer { deleteFolder(app) }
 
@@ -45,7 +48,7 @@ final class SwipeBackTests: XCTestCase {
     }
 
     private func makeFolder(_ app: XCUIApplication) {
-        app.buttons["ellipsis.circle"].tap()
+        app.buttons["libraryMenu"].tap()
         app.buttons["New Folder"].tap()
         let field = app.textFields["Name"]
         XCTAssertTrue(field.waitForExistence(timeout: 3), "New Folder alert never appeared")

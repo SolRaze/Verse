@@ -27,6 +27,9 @@ struct LibraryItem: Codable, Identifiable, Hashable {
     var playCount: Int = 0
     var lastPlayed: Date?
 
+    /// Heart from the player's burger menu. Defaulted so older libraries decode cleanly.
+    var liked: Bool = false
+
     /// YouTube items get a free thumbnail from the video id; local files show an icon.
     var thumbnailURL: URL? {
         guard case let .youtube(watchURL) = source else { return nil }
@@ -361,6 +364,27 @@ final class LibraryStore: ObservableObject {
             .sorted { $0.playCount > $1.playCount }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// Re-read a file's embedded tags (title / artist) and cover art, and update the item
+    /// (inbox-2 "fetch metadata"). Embedded tags only — no online lookup.
+    func fetchMetadata(_ item: LibraryItem) async {
+        guard case .file = item.source, let url = resolveURL(item) else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        var updated = item
+        let asset = AVURLAsset(url: url)
+        if let meta = try? await asset.load(.commonMetadata) {
+            let title = try? await AVMetadataItem.metadataItems(
+                from: meta, filteredByIdentifier: .commonIdentifierTitle).first?.load(.stringValue)
+            let artist = try? await AVMetadataItem.metadataItems(
+                from: meta, filteredByIdentifier: .commonIdentifierArtist).first?.load(.stringValue)
+            if let t = title ?? nil, !t.isEmpty { updated.title = t }
+            if let a = artist ?? nil, !a.isEmpty { updated.artist = a }
+        }
+        await Artwork.store(from: url, key: item.id.uuidString)
+        update(updated)
     }
 
     func remove(_ item: LibraryItem) {

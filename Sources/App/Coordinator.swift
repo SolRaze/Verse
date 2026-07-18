@@ -47,6 +47,23 @@ final class Coordinator: ObservableObject {
         queue.indices.contains(queueIndex) ? queue[queueIndex].id : nil
     }
 
+    /// The item now playing, for the player's burger menu (like / share / info).
+    var nowPlayingItem: LibraryItem? {
+        queue.indices.contains(queueIndex) ? queue[queueIndex] : nil
+    }
+
+    /// "Add to Queue > Play Next": right after the current track. Nothing playing = just play it.
+    func playNext(_ item: LibraryItem) {
+        guard !queue.isEmpty else { return play(item, in: [item]) }
+        queue.insert(item, at: min(queueIndex + 1, queue.count))
+    }
+
+    /// "Add to Queue > Play Last": end of the queue. Nothing playing = just play it.
+    func playLast(_ item: LibraryItem) {
+        guard !queue.isEmpty else { return play(item, in: [item]) }
+        queue.append(item)
+    }
+
     init(library: LibraryStore) {
         self.library = library
         try? player.activateAudioSession()

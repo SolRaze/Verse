@@ -5,24 +5,32 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var coordinator: Coordinator
 
-    enum Tab { case home, library }
+    enum Tab { case home, library, search }
     @State private var tab: Tab = .home
 
     var body: some View {
+        // The accessory is ALWAYS attached (Apple-Music style, inbox-2): the dock must look the
+        // same on boot as it does mid-song, so the bar shows a "Not Playing" idle state instead
+        // of appearing when playback starts and resizing the dock.
+        tabs
+            .tabViewBottomAccessory { MiniPlayerBar() }
+            .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
+            .tint(.white)                 // monotone: one accent, no colored chrome
+            .preferredColorScheme(.dark)
+    }
+
+    private var tabs: some View {
         TabView(selection: $tab) {
-            HomeView()
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(Tab.home)
-            LibraryView()
-                .tabItem { Label("Library", systemImage: "music.note.list") }
-                .tag(Tab.library)
+            SwiftUI.Tab("Home", systemImage: "house.fill", value: Tab.home) {
+                HomeView()
+            }
+            SwiftUI.Tab("Library", systemImage: "music.note.list", value: Tab.library) {
+                LibraryView()
+            }
+            // role: .search puts this in the dock's own search pill, Files-app style.
+            SwiftUI.Tab(value: Tab.search, role: .search) {
+                SearchView()
+            }
         }
-        // The system's own slot above the tab bar (the Apple Music mini-player position), so it
-        // rides the tab bar's glass instead of sitting flush under it. Present on every tab and
-        // every pushed screen, so it stays put while browsing into folders.
-        .tabViewBottomAccessory { MiniPlayerBar() }
-        .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
-        .tint(.white)                 // monotone: one accent, no colored chrome
-        .preferredColorScheme(.dark)
     }
 }

@@ -7,7 +7,6 @@ struct LibraryView: View {
     @EnvironmentObject var coordinator: Coordinator
     @State private var showingImporter = false
     @State private var linkText = ""
-    @State private var search = ""
     @State private var editing: LibraryItem?
     @State private var infoItem: LibraryItem?
     @State private var moveRequest: MoveRequest?
@@ -48,15 +47,18 @@ struct LibraryView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .searchable(text: $search)
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            // No search here (inbox-2) — the dock's search pill owns search now.
+            // Same shape as Home: big label on top.
+            .navigationTitle("Library")
+            .navigationBarTitleDisplayMode(.large)
             .navigationDestination(for: FolderPath.self) { fp in
                 FolderView(path: fp.components)
             }
             .navigationDestination(for: RemotePlaylist.self) { pl in
                 PlaylistDetailView(playlist: pl)
             }
+            .navigationDestination(for: CollectionKind.self) { CollectionPage(kind: $0) }
+            .navigationDestination(for: ArtistRef.self) { ArtistPage(artist: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if editMode == .active {
@@ -82,8 +84,12 @@ struct LibraryView: View {
                         }
                         SortMenu()
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        // Bare dots, no circle (inbox-2).
+                        Image(systemName: "ellipsis")
                     }
+                    // Stable hook for UI tests — SwiftUI labels an ellipsis menu "More", which
+                    // isn't a contract.
+                    .accessibilityIdentifier("libraryMenu")
                     .disabled(addingLink)
                 }
             }
@@ -149,24 +155,21 @@ struct LibraryView: View {
     // MARK: sections
 
     @ViewBuilder private var rootRows: some View {
-        if search.isEmpty {
-            remotePlaylistsSection
-            folderContents(path: [])          // top-level folders + loose items
-        } else {
-            searchResults
-        }
+        collectionsSection
+        folderContents(path: [])          // top-level folders + loose items
     }
 
-    @ViewBuilder private var remotePlaylistsSection: some View {
-        if !playlists.playlists.isEmpty {
-            Section("Playlists") {
-                ForEach(playlists.playlists) { pl in
-                    NavigationLink(value: pl) { PlaylistRow(playlist: pl) }
-                        .swipeActions {
-                            Button(role: .destructive) { playlists.remove(pl) } label: {
-                                Label("Remove", systemImage: "trash")
-                            }
-                        }
+    /// Apple-Music-style entry rows: Playlists / Artists / Albums / Songs (inbox-2). Remote
+    /// playlists moved off the root into the Playlists page.
+    private var collectionsSection: some View {
+        Section {
+            ForEach(CollectionKind.allCases, id: \.self) { kind in
+                NavigationLink(value: kind) {
+                    Label {
+                        Text(kind.rawValue)
+                    } icon: {
+                        Image(systemName: kind.icon).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -190,16 +193,6 @@ struct LibraryView: View {
                 }
                 ForEach(child.items) { item in itemButton(item, queue: child.items) }
             }
-        }
-    }
-
-    private var searchResults: some View {
-        let q = search.lowercased()
-        let hits = library.items.filter {
-            $0.title.lowercased().contains(q) || $0.artist.lowercased().contains(q)
-        }
-        return Section("Results") {
-            ForEach(hits) { item in itemButton(item, queue: hits) }
         }
     }
 
@@ -539,16 +532,12 @@ struct PlaylistDetailView: View {
 
 // MARK: - Mini player
 
+/// Apple Music's pill: art left, title middle, play + forward right. Always present (idle =
+/// "Not Playing") so the dock never changes shape when playback starts.
 struct MiniPlayerBar: View {
     @EnvironmentObject var coordinator: Coordinator
 
-    var body: some View {
-        if !coordinator.nowTitle.isEmpty { MiniPlayerContent() }
-    }
-}
-
-private struct MiniPlayerContent: View {
-    @EnvironmentObject var coordinator: Coordinator
+    private var idle: Bool { coordinator.nowTitle.isEmpty }
 
     private var playing: Bool {
         coordinator.engine == .vlc ? coordinator.player.isPlaying : coordinator.airPlayer.isPlaying
@@ -557,6 +546,22 @@ private struct MiniPlayerContent: View {
     var body: some View {
         let _ = coordinator.player.isPlaying   // observe VLC state
         HStack(spacing: 10) {
+            artwork
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .opacity(idle ? 0.4 : 1)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(idle ? "Not Playing" : coordinator.nowTitle)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(idle ? .secondary : .primary)
+                    .lineLimit(1)
+                if !idle, !coordinator.nowArtist.isEmpty {
+                    Text(coordinator.nowArtist).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+
             Button {
                 if coordinator.engine == .vlc {
                     coordinator.player.toggle()
@@ -566,32 +571,38 @@ private struct MiniPlayerContent: View {
             } label: {
                 Image(systemName: playing ? "pause.fill" : "play.fill").font(.title3)
             }
-            AirPlayButton().frame(width: 26, height: 26)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(coordinator.nowTitle).font(.footnote.weight(.semibold)).lineLimit(1)
-                if !coordinator.nowArtist.isEmpty {
-                    Text(coordinator.nowArtist).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
+            .disabled(idle)
+            Button { coordinator.skip(1) } label: {
+                Image(systemName: "forward.fill").font(.title3)
             }
-            Spacer(minLength: 0)
+            .disabled(idle)
         }
+        .opacity(idle ? 0.7 : 1)
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
         // No background: the tab bar's bottom accessory is already a glass capsule, so drawing
         // another material capsule in here nests one inside the other.
         .contentShape(Capsule())
-        .onTapGesture { coordinator.showPlayer = true }
-        // Swipe the bar itself for next/previous — the transport buttons that used to sit here
-        // are gone, so the gesture is the only way through the queue from the mini player.
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { g in
-                    guard abs(g.translation.width) > abs(g.translation.height) else { return }
-                    coordinator.skip(g.translation.width < 0 ? 1 : -1)
-                })
+        .onTapGesture { if !idle { coordinator.showPlayer = true } }
+    }
+
+    @ViewBuilder private var artwork: some View {
+        if let art = coordinator.player.current?.artwork {
+            Image(uiImage: art).resizable().scaledToFill()
+        } else if let thumb = coordinator.nowPlayingItem?.thumbnailURL {
+            AsyncImage(url: thumb) { $0.resizable().scaledToFill() } placeholder: { artPlaceholder }
+        } else {
+            artPlaceholder
+        }
+    }
+
+    private var artPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(.white.opacity(0.1))
+            .overlay(Image(systemName: "music.note").font(.caption).foregroundStyle(.secondary))
     }
 }
+
 
 // MARK: -
 
@@ -607,7 +618,16 @@ struct ItemContextMenu: View {
 
     var body: some View {
         Button { coordinator.play(item, in: queue) } label: { Label("Play", systemImage: "play.fill") }
+        Menu {
+            Button { coordinator.playNext(item) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
+            Button { coordinator.playLast(item) } label: { Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") }
+        } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
         Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+        if case .file = item.source {
+            Button { Task { await library.fetchMetadata(item) } } label: {
+                Label("Fetch Metadata", systemImage: "wand.and.stars")
+            }
+        }
         Button {
             moveRequest = MoveRequest(title: "Move \(item.title)", excluding: []) {
                 library.move(item, to: $0)
@@ -756,7 +776,7 @@ private struct MoveSheet: View {
 }
 
 /// File-manager "Get Info" panel.
-private struct InfoSheet: View {
+struct InfoSheet: View {      // shared with the player's burger menu
     @EnvironmentObject var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State private var info: LibraryStore.FileInfo?
