@@ -16,7 +16,11 @@ struct PlayerView: View {
 private struct NowPlayingPane: View {
     @ObservedObject var player: Player
     @EnvironmentObject var coordinator: Coordinator
+    @EnvironmentObject var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
     @State private var showLyrics = false
+    @State private var infoItem: LibraryItem?
+    @State private var showQueue = false
 
     private var hasLyrics: Bool {
         guard let l = player.lyrics else { return false }
@@ -27,61 +31,104 @@ private struct NowPlayingPane: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                Capsule().fill(.white.opacity(0.3)).frame(width: 36, height: 5).padding(.top, 10)
+            if showLyrics, let lyrics = player.lyrics, hasLyrics {
+                LyricsScreen(player: player, lyrics: lyrics, showQueue: $showQueue) {
+                    withAnimation(.snappy) { showLyrics = false }
+                }
+            } else {
+                VStack(spacing: 0) {
+                    topBar
 
-                // Album art near the top, offset so it doesn't crowd the drag handle.
-                artworkWithLyrics.padding(.top, 44)
-                titleRow.padding(.top, 28)
-                lyricsButton.padding(.top, 4)
-                scrubber.padding(.top, 8)
-                transport
+                    // Album art near the top, offset so it doesn't crowd the top bar.
+                    artOrVideo
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: 300)
+                        .padding(.top, 32)
+                    titleRow.padding(.top, 28)
+                    scrubber.padding(.top, 8)
+                    transport
+                    bottomRow
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
         }
+        .sheet(item: $infoItem) { InfoSheet(item: $0) }
+        .sheet(isPresented: $showQueue) { QueueSheet() }
         .preferredColorScheme(.dark)
     }
 
-    /// Album art, with synced lyrics laid over it (Apple-Music style) when toggled on. Tapping
-    /// the art dismisses the lyric overlay.
-    private var artworkWithLyrics: some View {
-        ZStack {
-            artOrVideo
-            if showLyrics, let lyrics = player.lyrics, hasLyrics {
-                RoundedRectangle(cornerRadius: 10).fill(.black.opacity(0.72))
-                LyricsPane(lyrics: lyrics, position: player.position) { player.seek(to: $0) }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .padding(6)
+    /// SoundCloud-shaped top: just the minimize chevron, top right, in a dark circle.
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 40, height: 40)
+                    .background(.white.opacity(0.1), in: Circle())
             }
         }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: 300)
-        .contentShape(Rectangle())
-        .onTapGesture { if showLyrics { withAnimation(.snappy) { showLyrics = false } } }
+        .padding(.top, 14)
+    }
+
+    private var burgerMenu: some View {
+        Menu {
+            if let item = coordinator.nowPlayingItem {
+                Button { infoItem = item } label: { Label("Info", systemImage: "info.circle") }
+                Button {
+                    var it = item
+                    it.liked.toggle()
+                    library.update(it)
+                } label: {
+                    let liked = library.items.first { $0.id == item.id }?.liked ?? item.liked
+                    Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.fill" : "heart")
+                }
+                if let url = shareURL(item) {
+                    ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
+                }
+                // ponytail: "View Track" / "View Artist" need deep-links from a sheet into the
+                // Library stack; add when navigation plumbing exists for them.
+            }
+        } label: {
+            // Bare dots in a dim circle, Apple-Music style.
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: 34, height: 34)
+                .background(.white.opacity(0.1), in: Circle())
+        }
+    }
+
+    private func shareURL(_ item: LibraryItem) -> URL? {
+        switch item.source {
+        case .youtube(let watchURL): watchURL.scheme?.hasPrefix("http") == true ? watchURL : nil
+        case .file: library.resolveURL(item)
+        }
     }
 
     @ViewBuilder private var artOrVideo: some View {
+        // Square corners on the art, per the redesign — no rounding anywhere here.
         if player.current?.artwork == nil, player.duration > 0 {
             // VLC-only video (mkv/webm/…) draws here; audio shows the placeholder square.
             VideoSurface(view: player.videoView)
                 .aspectRatio(16 / 9, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
         } else if let art = player.current?.artwork {
             // scaledToFit, not fill — fill zoom-crops non-square covers.
             Image(uiImage: art)
                 .resizable().scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 10))
                 .shadow(radius: 20)
         } else {
-            RoundedRectangle(cornerRadius: 10)
+            Rectangle()
                 .fill(.white.opacity(0.08))
                 .overlay(Image(systemName: "music.note").font(.system(size: 56))
                     .foregroundStyle(.white.opacity(0.4)))
         }
     }
 
+    /// Apple-Music-shaped: title/artist left, the burger in a circle on the right.
     private var titleRow: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
@@ -91,23 +138,31 @@ private struct NowPlayingPane: View {
                     .font(.subheadline).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
             }
             Spacer()
-            AirPlayButton().frame(width: 34, height: 34)
+            burgerMenu
         }
         .padding(.top, 12)
     }
 
-    /// Dedicated Lyrics toggle — the separate button that lays synced words over the artwork.
-    @ViewBuilder private var lyricsButton: some View {
-        if hasLyrics {
-            Button { withAnimation(.snappy) { showLyrics.toggle() } } label: {
-                Label(showLyrics ? "Hide Lyrics" : "Lyrics", systemImage: "quote.bubble.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(showLyrics ? .black : .white)
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(showLyrics ? .white : .white.opacity(0.15),
-                                in: Capsule())
+    /// Apple Music's bottom row: lyrics left, AirPlay center, queue right.
+    private var bottomRow: some View {
+        HStack {
+            Button { withAnimation(.snappy) { showLyrics = true } } label: {
+                Image(systemName: "quote.bubble.fill")
+                    .font(.title3)
+                    .foregroundStyle(hasLyrics ? .white : .white.opacity(0.25))
+            }
+            .disabled(!hasLyrics)
+            Spacer()
+            AirPlayButton().frame(width: 34, height: 34)
+            Spacer()
+            Button { showQueue = true } label: {
+                Image(systemName: "list.bullet")
+                    .font(.title3)
+                    .foregroundStyle(.white)
             }
         }
+        .padding(.horizontal, 40)
+        .padding(.top, 6)
     }
 
     private var scrubber: some View {
@@ -139,8 +194,10 @@ private struct NowPlayingPane: View {
             }
             Spacer()
             Button { player.toggle() } label: {
-                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 68))
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 32))
+                    .frame(width: 68, height: 68)
+                    .glassEffect(.regular.interactive())
             }
             Spacer()
             Button { player.nextTrack() } label: {
@@ -161,6 +218,151 @@ private struct NowPlayingPane: View {
     private func timeString(_ t: TimeInterval) -> String {
         guard t.isFinite, t > 0 else { return "0:00" }
         return String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
+    }
+}
+
+/// Fullscreen lyrics, Files-app player shaped: close top right, a bare scrubber (no transport on
+/// it), play bottom left, queue bottom right, with the track pill staying visible above the bar.
+private struct LyricsScreen: View {
+    @ObservedObject var player: Player
+    let lyrics: Lyrics
+    @Binding var showQueue: Bool
+    let onClose: () -> Void
+    @State private var samples: [Float]?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(width: 34, height: 34)
+                        .glassEffect(.regular.interactive())
+                }
+            }
+            .padding(.top, 14)
+
+            LyricsPane(lyrics: lyrics, position: player.position) { player.seek(to: $0) }
+
+            // The track pill that stays put while reading.
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(player.current?.title ?? "").font(.footnote.weight(.semibold)).lineLimit(1)
+                    Text(player.current?.artist ?? "").font(.caption2)
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(.white.opacity(0.08), in: Capsule())
+
+            // Real audio drawn when AVFoundation can decode the file; Files-style ticks when it
+            // can't (VLC-only codecs, remote streams — VLC exposes no decoded samples).
+            WaveScrubber(samples: samples,
+                         position: player.position,
+                         duration: player.duration) { player.seek(to: $0) }
+                .frame(height: 36)
+                .padding(.top, 12)
+                .task(id: player.current?.url) {
+                    samples = nil
+                    if let url = player.current?.url { samples = await Waveform.load(url: url) }
+                }
+
+            HStack {
+                Button { player.toggle() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .glassEffect(.regular.interactive())
+                }
+                Spacer()
+                Button { showQueue = true } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .glassEffect(.regular.interactive())
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.top, 8)
+        }
+        .padding(.horizontal, 24)
+    }
+}
+
+/// The lyrics-screen scrubber: real waveform bars when samples exist, Files-style ticks
+/// otherwise, with a playhead line. Drag to seek.
+private struct WaveScrubber: View {
+    let samples: [Float]?
+    let position: TimeInterval
+    let duration: TimeInterval
+    let onSeek: (TimeInterval) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            let frac = duration > 0 ? min(max(position / duration, 0), 1) : 0
+            let x = frac * w
+            Canvas { ctx, _ in
+                if let samples, !samples.isEmpty {
+                    let step = w / CGFloat(samples.count)
+                    for (i, v) in samples.enumerated() {
+                        let dx = CGFloat(i) * step
+                        let bh = max(3, CGFloat(v) * (h - 4))
+                        ctx.fill(
+                            Path(roundedRect: CGRect(x: dx, y: (h - bh) / 2,
+                                                     width: max(step - 1.5, 1), height: bh),
+                                 cornerRadius: 1),
+                            with: .color(.white.opacity(dx < x ? 0.9 : 0.3)))
+                    }
+                } else {
+                    for i in 0 ..< max(Int(w / 6), 2) {
+                        let dx = CGFloat(i) * 6 + 1.5
+                        ctx.fill(Path(ellipseIn: CGRect(x: dx, y: h / 2 - 1, width: 2, height: 2)),
+                                 with: .color(.white.opacity(dx < x ? 0.9 : 0.35)))
+                    }
+                }
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: 0))
+                line.addLine(to: CGPoint(x: x, y: h))
+                ctx.stroke(line, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { g in
+                        guard duration > 0 else { return }
+                        onSeek(min(max(g.location.x / w, 0), 1) * duration)
+                    })
+        }
+    }
+}
+
+/// Up-next list behind the lyrics screen's queue button.
+private struct QueueSheet: View {
+    @EnvironmentObject var coordinator: Coordinator
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if coordinator.upNext.isEmpty {
+                    ContentUnavailableView("Queue is empty", systemImage: "list.bullet")
+                } else {
+                    ForEach(coordinator.upNext) { item in
+                        Button { coordinator.jumpTo(item) } label: { QueueRow(item: item) }
+                            .tint(.primary)
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle("Up Next")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 

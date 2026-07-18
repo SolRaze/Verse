@@ -36,6 +36,11 @@ final class NowPlaying {
     /// unit updates reliably.
     var lyricsInTextFieldFallback = false
 
+    /// Master switch for rendering lyric lines into the published artwork. OFF by user request
+    /// (inbox-2 follow-up): lock screen and car always show the real album art. Per-line lyrics
+    /// still reach the Live Activity. Flip back on to restore karaoke artwork.
+    var lyricsInArtwork = false
+
     private let center = MPNowPlayingInfoCenter.default()
     private var track: Track?
     private var lyrics: Lyrics?
@@ -90,6 +95,11 @@ final class NowPlaying {
 
         let index = lyrics.lineIndex(at: position)
         syncActivity(index: index, playing: playing)
+        guard lyricsInArtwork else {
+            // Real album art was published in begin(); image nil keeps it and updates timing only.
+            publish(position: position, playing: playing, image: nil, lyricLine: nil)
+            return
+        }
         if let shown = shownLineIndex, shown == index {
             publish(position: position, playing: playing, image: nil, lyricLine: nil)  // timing only
             return
