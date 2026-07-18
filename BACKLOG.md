@@ -22,22 +22,47 @@ tree is the organization. Revisit if real album metadata ever appears.
 
 Still open here: more tabs (Locations, per Jellyfin below).
 
-## Now Playing redesign
+## Now Playing redesign — **SHIPPED** (2026-07-18) except two menu items
 
-- **Minimize chevron** instead of the drag bar; remove the bar entirely.
-- Album art **top-center**, **square corners** (drop the rounding), offset a bit further down.
-- **Burger menu, top right**: song description/info, like, share, view track, view artist.
-- Move the **AirPlay icon to the bottom**.
-- **Glass/translucent play button**.
+- ~~Minimize chevron instead of the drag bar~~ — top right in a dim circle (SoundCloud style).
+- ~~Album art top-center, square corners.~~
+- ~~Burger menu~~ — bare dots beside the title (Apple Music style): Info / Like / Share.
+  Still open: **view track / view artist** — need deep-links from the sheet into the Library
+  stack.
+- ~~AirPlay at the bottom~~ — Apple-Music bottom row: Lyrics · AirPlay · Queue.
+- ~~Glass play button~~ (`glassEffect`).
+- Lyrics is a fullscreen page: close top right, wave scrubber (real decoded audio via
+  `Sources/Core/Waveform.swift` for AVFoundation-readable files, Files-style ticks for
+  VLC-only codecs and streams), play bottom left, queue bottom right.
+- Lyric-into-artwork rendering is **disabled** (user request, 2026-07-18): lock screen and
+  CarPlay always show real cover art. Re-enable via `NowPlaying.lyricsInArtwork`.
 
-## Mini player — **SHIPPED** (2026-07-17)
+## Mini player — **SHIPPED** (2026-07-17, revised 2026-07-18)
 
-- ~~More **capsule**-shaped, same translucent material.~~
-- ~~**Play button on the left**; cast/AirPlay also left.~~
-- ~~**Swipe for next / previous**.~~ The forward button is gone; the swipe replaces it.
+- 2026-07-18 shape (supersedes the rest): Apple Music pill — art left, title middle,
+  **play + forward right**, **no swipe gestures**. Always attached, with a dimmed
+  "Not Playing" idle state so the dock looks identical on boot and mid-song.
 - Sits in `.tabViewBottomAccessory` (iOS 26) rather than a hand-rolled `safeAreaInset`, so it
   rides above the tab bar's glass pill instead of sitting flush under it. That container draws
   its own capsule and material — don't add a background inside it or you nest two capsules.
+  An EMPTY accessory still renders a blank capsule — that's why the idle state exists.
+
+## Library collections — **SHIPPED** (2026-07-18)
+
+- Playlists / Artists / Albums / Songs rows on the Library root (Apple Music style, see
+  `reference/music-library.png`), each a big-title page with a sort menu (Title / Date Added /
+  Last Played / Most Played). `Sources/App/CollectionsView.swift`.
+- Search is a dock pill (`Tab(role: .search)`) with its own page; no search bars on Home or
+  Library. Guarded by `UITests/SearchTests.swift`.
+- Still open: grid/list toggle, Favourites / Downloads filters, "imports" shelf on Home.
+
+## Import flow "template" (inbox-2, needs a decision)
+
+User wants "a template like format when importing", open to suggestions. Options offered:
+(a) import summary sheet before committing, (b) post-import bulk metadata pass, (c)
+`Artist - Title` filename parsing. Waiting on a pick. Related shipped piece: per-file
+"Fetch Metadata" (embedded tags via AVAsset) in the hold menu; online lookup (MusicBrainz)
+not built.
 
 ## App icon — **SHIPPED** (2026-07-17)
 
@@ -49,14 +74,16 @@ Still open here: more tabs (Locations, per Jellyfin below).
   and they are icon-only.** Those rules govern UI chrome (`.tint(.white)`, no colored chrome) and
   still hold everywhere else. Do not "fix" this icon by flattening or de-colouring it.
 - `reference.jpg` in the repo root is the target. Compare against it before changing the drawing.
+- 2026-07-18: sheen reduced to two hues (green/violet), five tonal steps, dark floor 0.12;
+  red tape narrowed to the reference's 1.22 tall ratio.
 - Regenerate with `Tools/makeicon.swift` (not in any target; see the header for the command).
-  Knobs: `SQ` (square size), `SQX` (distance from centre; 310 fits, 360 runs off the icon edge),
-  `SPOKES` (streak count), `FLAT=1` for a no-sheen disc, `vinyl` as the style arg for the old one.
+  Current knobs: `SQH`/`SQL`/`SQR`/`SQC` (tape height / left edge / right edge / corner radius),
+  `HUES`/`LEVELS` (sheen), `FLAT=1` for a no-sheen disc, `vinyl` as the style arg for the old one.
 
-## Likes / favorites
+## Likes / favorites — flag **SHIPPED** (2026-07-18), browsing not
 
-Implied by the Now Playing "like" action: needs a favorite flag on `LibraryItem` and
-somewhere to browse it.
+`LibraryItem.liked` exists and toggles from the player's burger menu. Still needs somewhere
+to browse liked tracks (a Favourites filter on the collections pages, per Apple Music).
 
 ## Jellyfin servers
 

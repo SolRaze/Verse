@@ -3,7 +3,7 @@
 Notes stay here permanently. Each gets a status line as it's triaged or built.
 Legend: **DONE** = shipped · **PARTIAL** = some of it shipped · **ISSUE** = tracked in
 `ISSUES.md` · **BACKLOG** = tracked in `BACKLOG.md`.
-Last triage: 2026-07-16.
+Last triage: 2026-07-18.
 
 ---
 
@@ -66,6 +66,60 @@ when inside the folder retain the mini player location or position
 > put across navigation and tab switches.
 
 
+
+bro using too many colors on icon reduce that and add more depth on the darker tone(increase values)
+
+> **DONE** (2026-07-18) — sheen cut to two hues (green/violet), tonal steps 4 → 5, dark floor
+> deepened (brightness 0.18 → 0.12, hub to match). New defaults in `Tools/makeicon.swift`
+> (`HUES`/`LEVELS` env knobs still override). Red tape also narrowed to the reference's 1.22
+> tall ratio the same day.
+
+make the library layout same as the homepage with big label on top and remove search bar from home and add it to new page as a dock button
+
+> **DONE** (2026-07-18) — Library gets a big "Library" title like Home. Home's search bar is
+> gone; search is now its own dock pill (`Tab(role: .search)`, Files-app style) opening a
+> dedicated Search page. Library keeps its local search for filtering while browsing.
+
+make mini player pill like apple music album on left and the play and forward button on right with removing swipe feature to forward and back, 
+
+> **DONE** (2026-07-18) — album art (or thumbnail) left, title middle, play + forward right,
+> swipe gesture removed. AirPlay left the mini player; it lives in the full player.
+
+new feature add to queue and a sub context menu on hold, 
+
+> **DONE** (2026-07-18) — hold a track → "Add to Queue" submenu with Play Next / Play Last
+> (`Coordinator.playNext/playLast`). With nothing playing, either just plays the track.
+> Enqueued items don't survive a shuffle toggle (shuffle restores the pre-shuffle queue) —
+> acceptable for now.
+
+also inside folders the distance between mini player looks off a straight cuts off so make it apper behind mini player and end not reacting the buttons, 
+
+> **BELIEVED FIXED** (2026-07-18) — the hard cut-off was the old per-screen `safeAreaInset`
+> bar. The bar now sits in the system's `.tabViewBottomAccessory` slot and folder lists are
+> plain `List`s, so content scrolls behind it with system insets. Confirm on device.
+
+the dock button functions weird as it is small when song played it grows in size make it constant, 
+
+> **BELIEVED FIXED** (2026-07-18) — the "small" state was an empty glass capsule the accessory
+> rendered with nothing playing; it then "grew" when a song filled it. The accessory now only
+> exists while something plays, so there's no small state. Confirm on device.
+
+inside current playing fullscreen take inspiration from above but newer recommendations here if overlapping from above idea take this as standard, 
+
+> **PARTIAL** (2026-07-18) — Now Playing redesign shipped: minimize chevron replaces the drag
+> capsule, burger menu top right (Info / Like / Share — Like is a new persisted `liked` flag),
+> square art corners, AirPlay moved to the bottom under the transport, glass play button
+> (`glassEffect`). Still open → **BACKLOG**: "View Track" / "View Artist" menu items (need
+> deep-links from the sheet into the Library stack).
+
+while inside lyrics button the mini player stays and the now playing song's wav data or the frequency range displays on the bar without any button and just the scrubber, check the way the files app play sound filed inside app for reference and keep their measurements as standard with same ui a close button on top right, and a play button on bottom left and a queue button on the bottom right 
+
+> **PARTIAL** (2026-07-18) — Lyrics is now a fullscreen page: close top right, track pill that
+> stays put, bare scrubber (no transport on it), play bottom left, queue bottom right (opens an
+> Up Next sheet). Still open → **BACKLOG**: waveform/frequency drawn on the scrubber — VLC
+> exposes no decoded samples, needs a separate decode pass (`ponytail:` comment marks the spot).
+
+
 ---
 
 ## Shipped since this inbox was written
@@ -74,4 +128,6 @@ when inside the folder retain the mini player location or position
 - Dedicated Lyrics button; synced lyrics overlaid on the artwork.
 - Shuffle (keeps current track, restores order) and repeat off → all → one.
 - Swipe-back fixes attempted twice — still open, tracked as **ISSUE #5**.
+  2026-07-18: verified fixed — the `SwipeBackTests` UI test (one edge swipe pops a folder)
+  now passes on the iOS 26.5 simulator.
 
