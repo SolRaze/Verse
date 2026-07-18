@@ -22,13 +22,14 @@ tree is the organization. Revisit if real album metadata ever appears.
 
 Still open here: more tabs (Locations, per Jellyfin below).
 
-## Now Playing redesign — **SHIPPED** (2026-07-18) except two menu items
+## Now Playing redesign — **SHIPPED** (2026-07-18, menu completed same day)
 
 - ~~Minimize chevron instead of the drag bar~~ — top right in a dim circle (SoundCloud style).
 - ~~Album art top-center, square corners.~~
 - ~~Burger menu~~ — bare dots beside the title (Apple Music style): Info / Like / Share.
-  Still open: **view track / view artist** — need deep-links from the sheet into the Library
-  stack.
+- ~~View Track / View Artist~~ — deep-links from the sheet into the Library stack
+  (`Coordinator.DeepLink`; RootView flips the tab, LibraryView drives its `NavigationPath`).
+  View Track = the track's folder (files only); View Artist = the ArtistPage.
 - ~~AirPlay at the bottom~~ — Apple-Music bottom row: Lyrics · AirPlay · Queue.
 - ~~Glass play button~~ (`glassEffect`).
 - Lyrics is a fullscreen page: close top right, wave scrubber (real decoded audio via
@@ -54,7 +55,9 @@ Still open here: more tabs (Locations, per Jellyfin below).
   Last Played / Most Played). `Sources/App/CollectionsView.swift`.
 - Search is a dock pill (`Tab(role: .search)`) with its own page; no search bars on Home or
   Library. Guarded by `UITests/SearchTests.swift`.
-- Still open: grid/list toggle, Favourites / Downloads filters, "imports" shelf on Home.
+- Favourites landed as its own collection row (2026-07-18), not a filter — liked tracks with
+  the same sort menu.
+- Still open: grid/list toggle, Downloads filter, "imports" shelf on Home.
 
 ## Import flow "template" (inbox-2, needs a decision)
 
@@ -80,10 +83,10 @@ not built.
   Current knobs: `SQH`/`SQL`/`SQR`/`SQC` (tape height / left edge / right edge / corner radius),
   `HUES`/`LEVELS` (sheen), `FLAT=1` for a no-sheen disc, `vinyl` as the style arg for the old one.
 
-## Likes / favorites — flag **SHIPPED** (2026-07-18), browsing not
+## Likes / favorites — **SHIPPED** (2026-07-18)
 
-`LibraryItem.liked` exists and toggles from the player's burger menu. Still needs somewhere
-to browse liked tracks (a Favourites filter on the collections pages, per Apple Music).
+`LibraryItem.liked` toggles from the player's burger menu; browsing landed the same day as a
+**Favourites** row on the Library collections (liked tracks, same sort menu).
 
 ## Jellyfin servers
 

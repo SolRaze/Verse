@@ -8,6 +8,7 @@ enum CollectionKind: String, CaseIterable, Hashable {
     case artists = "Artists"
     case albums = "Albums"
     case songs = "Songs"
+    case favourites = "Favourites"
 
     var icon: String {
         switch self {
@@ -15,6 +16,7 @@ enum CollectionKind: String, CaseIterable, Hashable {
         case .artists: "music.mic"
         case .albums: "square.stack"
         case .songs: "music.note"
+        case .favourites: "heart"
         }
     }
 }
@@ -41,7 +43,8 @@ struct CollectionPage: View {
             case .playlists: playlistRows
             case .artists: artistRows
             case .albums: albumRows
-            case .songs: songRows
+            case .songs: songRows(library.items)
+            case .favourites: songRows(library.items.filter(\.liked))
             }
         }
         .listStyle(.insetGrouped)
@@ -104,8 +107,8 @@ struct CollectionPage: View {
         }
     }
 
-    @ViewBuilder private var songRows: some View {
-        let songs = sortedItems(library.items)
+    @ViewBuilder private func songRows(_ items: [LibraryItem]) -> some View {
+        let songs = sortedItems(items)
         ForEach(songs) { item in
             Button { coordinator.play(item, in: songs) } label: { ItemRow(item: item) }
                 .tint(.primary)
@@ -133,10 +136,13 @@ struct CollectionPage: View {
         case .artists: !library.items.contains { !$0.artist.isEmpty }
         case .albums: !library.allFolders().contains { !library.children(of: $0).items.isEmpty }
         case .songs: library.items.isEmpty
+        case .favourites: !library.items.contains(where: \.liked)
         }
         if empty {
             ContentUnavailableView("Nothing here yet", systemImage: kind.icon,
-                                   description: Text("Import music and it will appear here."))
+                                   description: Text(kind == .favourites
+                                       ? "Like a song from the player and it will appear here."
+                                       : "Import music and it will appear here."))
         }
     }
 }

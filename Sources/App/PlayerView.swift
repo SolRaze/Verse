@@ -89,8 +89,17 @@ private struct NowPlayingPane: View {
                 if let url = shareURL(item) {
                     ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
                 }
-                // ponytail: "View Track" / "View Artist" need deep-links from a sheet into the
-                // Library stack; add when navigation plumbing exists for them.
+                // Only library files live somewhere to view; remote queue entries don't.
+                if case .file = item.source {
+                    Button { coordinator.open(.folder(item.folders)) } label: {
+                        Label("View Track", systemImage: "music.note")
+                    }
+                }
+                if !item.artist.isEmpty {
+                    Button { coordinator.open(.artist(item.artist)) } label: {
+                        Label("View Artist", systemImage: "music.mic")
+                    }
+                }
             }
         } label: {
             // Bare dots in a dim circle, Apple-Music style.

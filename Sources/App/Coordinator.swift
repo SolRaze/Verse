@@ -26,6 +26,16 @@ final class Coordinator: ObservableObject {
     /// Restored when shuffle turns off.
     private var originalQueue: [LibraryItem] = []
 
+    /// Player burger "View Track" / "View Artist": lands in the Library stack. RootView flips
+    /// the tab, LibraryView pushes the destination and clears this.
+    enum DeepLink: Equatable { case folder([String]), artist(String) }
+    @Published var deepLink: DeepLink?
+
+    func open(_ link: DeepLink) {
+        showPlayer = false
+        deepLink = link
+    }
+
     /// What the mini bar and video pane show — kept here because the AVPlayer path has no
     /// published metadata of its own.
     @Published private(set) var nowTitle = ""
