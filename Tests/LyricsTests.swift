@@ -45,6 +45,17 @@ final class LyricsTests: XCTestCase {
         XCTAssertEqual(l.plain, "just some words\nand more")
     }
 
+    /// Issue #4: an empty cache file is a remembered miss — resolve must return nil from disk
+    /// without touching the network (a sidecar/LRCLIB hit would prove the cache was skipped).
+    func testEmptyCacheFileIsANegativeHit() async {
+        let key = "negative-\(UUID().uuidString)"
+        LyricsResolver.attach(lrcText: "", cacheKey: key)
+        let resolved = await LyricsResolver.resolve(
+            mediaURL: nil, title: "Bohemian Rhapsody", artist: "Queen",
+            duration: 355, cacheKey: key)
+        XCTAssertNil(resolved, "cached miss must short-circuit, not re-resolve a famous track")
+    }
+
     func testLineIndexBoundaries() {
         let l = LRCParser.parse("[00:10.00]a\n[00:20.00]b")
         XCTAssertNil(l.lineIndex(at: 0))          // before the first line

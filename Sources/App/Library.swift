@@ -383,6 +383,7 @@ final class LibraryStore: ObservableObject {
             if let t = title ?? nil, !t.isEmpty { updated.title = t }
             if let a = artist ?? nil, !a.isEmpty { updated.artist = a }
         }
+        Artwork.invalidate(key: item.id.uuidString)  // bypass the no-art marker on manual re-fetch
         await Artwork.store(from: url, key: item.id.uuidString)
         update(updated)
     }

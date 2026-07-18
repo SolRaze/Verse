@@ -74,6 +74,23 @@ final class NowPlaying {
         startActivity()
     }
 
+    /// Late attach after begin() (issue #4): publish artwork once, adopt lyrics and start the
+    /// Live Activity that begin() skipped because they hadn't resolved yet.
+    func attach(lyrics: Lyrics?, artwork: UIImage?) {
+        guard track != nil else { return }
+        if let artwork {
+            track?.artwork = artwork
+            let pos = center.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime]
+                as? TimeInterval ?? 0
+            publish(position: pos, playing: isPlaying, image: artwork, lyricLine: nil)
+        }
+        if let lyrics {
+            self.lyrics = lyrics
+            shownLineIndex = nil
+            if activity == nil { startActivity() }
+        }
+    }
+
     func end() {
         track = nil
         lyrics = nil

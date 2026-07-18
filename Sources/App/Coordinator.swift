@@ -179,13 +179,12 @@ final class Coordinator: ObservableObject {
                     let ex = try await YouTubeSource.extract(watchURL: watchURL, audioOnly: true)
                     engine = .vlc
                     airPlayer.stop()
-                    let lyrics = await LyricsResolver.resolve(
-                        mediaURL: nil, title: cleanedTitle(item.title), artist: item.artist,
-                        duration: nil, cacheKey: item.id.uuidString)
                     player.load(
                         Player.Item(url: ex.streamURL, title: item.title, artist: item.artist,
                                     skipSegments: ex.skipSegments),
-                        lyrics: lyrics)
+                        lyrics: nil)
+                    resolveExtras(for: item, mediaURL: nil, playbackURL: ex.streamURL,
+                                  title: cleanedTitle(item.title))
                 }
 
             case .file:
@@ -201,19 +200,34 @@ final class Coordinator: ObservableObject {
                 } else {
                     engine = .vlc
                     airPlayer.stop()
-                    let lyrics = await LyricsResolver.resolve(
-                        mediaURL: url, title: item.title, artist: item.artist,
-                        duration: nil, cacheKey: item.id.uuidString)
-                    await Artwork.store(from: url, key: item.id.uuidString)  // lockscreen/CarPlay cover
                     player.load(
                         Player.Item(url: url, title: item.title, artist: item.artist,
                                     artwork: Artwork.image(for: item.id.uuidString), scoped: true),
-                        lyrics: lyrics)
+                        lyrics: nil)
+                    resolveExtras(for: item, mediaURL: url, playbackURL: url, title: item.title)
                 }
             }
             showPlayer = true
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    /// Issue #4: sound first, network after. Lyrics + artwork resolve in the background and
+    /// attach if the same track is still playing. The player holds the security scope for
+    /// `mediaURL` while this runs, so the AVAsset reads inside are covered.
+    private func resolveExtras(for item: LibraryItem, mediaURL: URL?, playbackURL: URL,
+                               title: String) {
+        Task {
+            let lyrics = await LyricsResolver.resolve(
+                mediaURL: mediaURL, title: title, artist: item.artist,
+                duration: nil, cacheKey: item.id.uuidString)
+            var art: UIImage?
+            if let mediaURL {
+                await Artwork.store(from: mediaURL, key: item.id.uuidString)  // lockscreen/CarPlay cover
+                art = Artwork.image(for: item.id.uuidString)
+            }
+            player.attach(lyrics: lyrics, artwork: art, forURL: playbackURL)
         }
     }
 

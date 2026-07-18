@@ -73,6 +73,11 @@ final class DeviceVerifyTests: XCTestCase {
         let key = UUID().uuidString
         await Artwork.store(from: wav, key: key)
         XCTAssertNil(Artwork.image(for: key), "no embedded art → no thumbnail, not a blank one")
+        // Issue #4: the miss leaves a marker so the next play skips the AVAsset load entirely;
+        // invalidate (manual Fetch Metadata) clears it for a real retry.
+        XCTAssertTrue(Artwork.exists(for: key), "miss must be remembered, not retried every play")
+        Artwork.invalidate(key: key)
+        XCTAssertFalse(Artwork.exists(for: key))
 
         // Positive path: hand-write a jpeg into the cache location the way import does, confirm
         // the memory+disk read round-trips.
