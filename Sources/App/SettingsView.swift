@@ -27,6 +27,14 @@ enum Pref {
     }
 }
 
+extension View {
+    /// Sheets don't inherit the shell's tint — restate the user's accent on presentation.
+    /// TODO(later): reads defaults once at render; a theme change mid-sheet lags until reopen.
+    func themedTint() -> some View {
+        tint(Pref.color(for: UserDefaults.standard.string(forKey: Pref.theme) ?? "White"))
+    }
+}
+
 /// The personalization hub: every user-tweakable knob lives here, grouped by surface.
 struct SettingsView: View {
     @AppStorage(Pref.theme) private var theme = "White"
