@@ -15,7 +15,7 @@ CarPlay Now Playing screen.
 - Mini player pill, waveform scrubber drawn from decoded audio, full-range accent colour
 - Widget + lock screen / CarPlay transport controls
 
-## CarPlay facts
+## CarPlay
 
 - With no entitlement, an audio app reaches CarPlay only via the Now Playing screen:
   `AVAudioSession(.playback)` + `MPNowPlayingInfoCenter` + `MPRemoteCommandCenter` provide
