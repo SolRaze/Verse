@@ -37,7 +37,7 @@ targets:
     settings:
       base:
         # Alternate app icons (Settings > Appearance > App Icon).
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIcon-Classic AppIcon-Purple
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIcon-Classic AppIcon-Yandhi AppIcon-Yeezus
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
     sources:
       - Sources/App
