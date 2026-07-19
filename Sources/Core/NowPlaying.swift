@@ -31,15 +31,18 @@ final class NowPlaying {
         var seek: (TimeInterval) -> Void
     }
 
-    /// Some head units cache artwork and won't refresh it per lyric line. Flip this after testing
-    /// in the actual car; it pushes the current line into the artist field instead, which every
-    /// unit updates reliably.
-    var lyricsInTextFieldFallback = false
+    /// Some head units cache artwork and won't refresh it per lyric line. Settings toggle; it
+    /// pushes the current line into the artist field instead, which every unit updates reliably.
+    var lyricsInTextFieldFallback: Bool {
+        UserDefaults.standard.bool(forKey: Pref.carPlayTextFallback)
+    }
 
-    /// Master switch for rendering lyric lines into the published artwork. OFF by user request
-    /// (inbox-2 follow-up): lock screen and car always show the real album art. Per-line lyrics
-    /// still reach the Live Activity. Flip back on to restore karaoke artwork.
-    var lyricsInArtwork = false
+    /// Master switch for rendering lyric lines into the published artwork. OFF by default (user
+    /// request, inbox-2): lock screen and car show the real album art. Per-line lyrics still
+    /// reach the Live Activity. Settings toggle restores karaoke artwork.
+    var lyricsInArtwork: Bool {
+        UserDefaults.standard.bool(forKey: Pref.lyricsInArtwork)
+    }
 
     private let center = MPNowPlayingInfoCenter.default()
     private var track: Track?

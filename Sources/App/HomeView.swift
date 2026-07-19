@@ -9,6 +9,7 @@ struct HomeView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var playlists: PlaylistStore
     @EnvironmentObject var coordinator: Coordinator
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -26,6 +27,14 @@ struct HomeView: View {
             .navigationDestination(for: RemotePlaylist.self) { pl in
                 PlaylistDetailView(playlist: pl)
             }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSettings) { SettingsView() }
             .overlay { emptyState }
         }
     }

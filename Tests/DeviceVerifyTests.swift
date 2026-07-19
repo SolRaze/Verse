@@ -93,6 +93,18 @@ final class DeviceVerifyTests: XCTestCase {
         XCTAssertNotNil(Artwork.image(for: key2))
     }
 
+    // MARK: Waveform decode + disk cache
+
+    func testWaveformDecodesAndCaches() async throws {
+        let wav = try makeWAV()
+        let firstLoad = await Waveform.load(url: wav)
+        let first = try XCTUnwrap(firstLoad, "WAV is AVFoundation-decodable")
+        XCTAssertEqual(first.count, 120)
+        XCTAssertEqual(first.max(), 1, "buckets normalize to peak 1")
+        let secondLoad = await Waveform.load(url: wav)
+        XCTAssertEqual(first, secondLoad, "cache round-trip returns identical buckets")
+    }
+
     // MARK: Folder import preserves the tree
 
     @MainActor

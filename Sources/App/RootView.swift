@@ -7,18 +7,19 @@ struct RootView: View {
 
     enum Tab { case home, library, search }
     @State private var tab: Tab = .home
+    @AppStorage(Pref.theme) private var theme = "White"
 
     var body: some View {
         // The accessory is ALWAYS attached (Apple-Music style, inbox-2): the dock must look the
         // same on boot as it does mid-song, so the bar shows a "Not Playing" idle state instead
         // of appearing when playback starts and resizing the dock.
         tabs
-            .tabViewBottomAccessory { MiniPlayerBar() }
+            .tabViewBottomAccessory { MiniPlayerBar(player: coordinator.player) }
             .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
             .onChange(of: coordinator.deepLink) { _, link in
                 if link != nil { tab = .library }
             }
-            .tint(.white)                 // monotone: one accent, no colored chrome
+            .tint(Pref.color(for: theme)) // monotone white default; Settings can retint
             .preferredColorScheme(.dark)
     }
 

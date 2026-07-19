@@ -1,16 +1,40 @@
 import AVFoundation
+import CryptoKit
 
 /// Decodes an audio file into a small set of RMS buckets for the lyrics-screen scrubber.
 /// AVFoundation-decodable local files only (mp3/aac/m4a/alac/flac/wav/aiff): VLC exposes no
 /// decoded samples, so its exclusive codecs (ogg/opus/ape/…) and remote streams return nil and
 /// the scrubber falls back to ticks.
+///
+/// Decoding a whole file is seconds of work, so results cache to disk keyed by the file path —
+/// the first open of a track draws ticks until the decode lands, every later open is instant.
 enum Waveform {
     /// ~`buckets` values normalized to 0...1, or nil when the asset can't be read.
     static func load(url: URL, buckets: Int = 120) async -> [Float]? {
         guard url.isFileURL else { return nil }
-        return await Task.detached(priority: .utility) {
+        let cacheFile = cacheFile(for: url)
+        if let data = try? Data(contentsOf: cacheFile), !data.isEmpty,
+           data.count % MemoryLayout<Float>.size == 0 {
+            return data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        }
+        let samples = await Task.detached(priority: .utility) {
             decode(url: url, buckets: buckets)
         }.value
+        if let samples {
+            try? samples.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: cacheFile)
+        }
+        return samples
+    }
+
+    /// ponytail: keyed by url.path — a reinstall moves the container and orphans entries, but
+    /// Caches is system-purgeable anyway. Key by item id if files ever move in place.
+    private static func cacheFile(for url: URL) -> URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("waveform", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let hash = SHA256.hash(data: Data(url.path.utf8)).prefix(8)
+            .map { String(format: "%02x", $0) }.joined()
+        return dir.appendingPathComponent(hash + ".wf")
     }
 
     private static func decode(url: URL, buckets: Int) -> [Float]? {

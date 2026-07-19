@@ -35,8 +35,12 @@ Still open here: more tabs (Locations, per Jellyfin below).
 - Lyrics is a fullscreen page: close top right, wave scrubber (real decoded audio via
   `Sources/Core/Waveform.swift` for AVFoundation-readable files, Files-style ticks for
   VLC-only codecs and streams), play bottom left, queue bottom right.
-- Lyric-into-artwork rendering is **disabled** (user request, 2026-07-18): lock screen and
-  CarPlay always show real cover art. Re-enable via `NowPlaying.lyricsInArtwork`.
+  2026-07-19: the scrubber moved **inside** the track pill (user request), and decoded
+  waveforms now cache to disk (`Caches/waveform/`) — first open draws ticks until the decode
+  lands, every later open is instant.
+- Lyric-into-artwork rendering is **disabled by default** (user request, 2026-07-18): lock
+  screen and CarPlay show real cover art. 2026-07-19: re-enable moved from a code flag to the
+  Settings page.
 
 ## Mini player — **SHIPPED** (2026-07-17, revised 2026-07-18)
 
@@ -87,6 +91,27 @@ not built.
 
 `LibraryItem.liked` toggles from the player's burger menu; browsing landed the same day as a
 **Favourites** row on the Library collections (liked tracks, same sort menu).
+
+## Settings / personalization — **SHIPPED** (2026-07-19)
+
+User asked for "a feature heavy settings page to configure each personalization even add
+themes". `Sources/App/SettingsView.swift`, gear on Home's toolbar. Keys in `Pref`, read by
+core via the same constants:
+
+- **Appearance / themes**: accent colour picker. **White stays the default** — the monotone
+  rule still governs the stock look; non-white tints are a user-picked, Settings-sanctioned
+  exception (same spirit as the icon carve-out).
+- **Mini player**: optional wave scrubber in the dock pill (takes the artist line's slot, so
+  the pill height never changes; drag to seek). Off by default — the Apple-Music pill stays
+  stock.
+- **Lyrics**: Lyrics on Artwork (the old `NowPlaying.lyricsInArtwork` flag) and CarPlay Text
+  Fallback (`lyricsInTextFieldFallback`), both now UserDefaults-backed.
+- **Playback**: SponsorBlock on/off (default on, registered in `Pref.registerDefaults()`).
+- **Storage**: clear lyrics/artwork/waveform caches — also forgets the negative "nothing
+  found" markers, so every track retries lookup on next play.
+
+Not built: per-setting search, app-icon switcher, light mode (app is dark by design). Add if
+ever asked.
 
 ## Jellyfin servers
 

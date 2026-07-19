@@ -255,29 +255,29 @@ private struct LyricsScreen: View {
 
             LyricsPane(lyrics: lyrics, position: player.position) { player.seek(to: $0) }
 
-            // The track pill that stays put while reading.
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(player.current?.title ?? "").font(.footnote.weight(.semibold)).lineLimit(1)
-                    Text(player.current?.artist ?? "").font(.caption2)
-                        .foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(.white.opacity(0.08), in: Capsule())
-
+            // The track pill that stays put while reading — the wave scrubber lives inside it.
             // Real audio drawn when AVFoundation can decode the file; Files-style ticks when it
             // can't (VLC-only codecs, remote streams — VLC exposes no decoded samples).
-            WaveScrubber(samples: samples,
-                         position: player.position,
-                         duration: player.duration) { player.seek(to: $0) }
-                .frame(height: 36)
-                .padding(.top, 12)
-                .task(id: player.current?.url) {
-                    samples = nil
-                    if let url = player.current?.url { samples = await Waveform.load(url: url) }
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(player.current?.title ?? "").font(.footnote.weight(.semibold)).lineLimit(1)
+                        Text(player.current?.artist ?? "").font(.caption2)
+                            .foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
                 }
+                WaveScrubber(samples: samples,
+                             position: player.position,
+                             duration: player.duration) { player.seek(to: $0) }
+                    .frame(height: 28)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
+            .task(id: player.current?.url) {
+                samples = nil
+                if let url = player.current?.url { samples = await Waveform.load(url: url) }
+            }
 
             HStack {
                 Button { player.toggle() } label: {
@@ -301,9 +301,9 @@ private struct LyricsScreen: View {
     }
 }
 
-/// The lyrics-screen scrubber: real waveform bars when samples exist, Files-style ticks
-/// otherwise, with a playhead line. Drag to seek.
-private struct WaveScrubber: View {
+/// The wave scrubber: real waveform bars when samples exist, Files-style ticks otherwise, with
+/// a playhead line. Drag to seek. Shared by the lyrics pill and (via Settings) the mini player.
+struct WaveScrubber: View {
     let samples: [Float]?
     let position: TimeInterval
     let duration: TimeInterval
