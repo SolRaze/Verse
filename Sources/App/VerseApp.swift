@@ -7,6 +7,7 @@ struct VerseApp: App {
     @StateObject private var coordinator: Coordinator
 
     init() {
+        Pref.registerDefaults()
         let lib = LibraryStore()
         _library = StateObject(wrappedValue: lib)
         _coordinator = StateObject(wrappedValue: Coordinator(library: lib))

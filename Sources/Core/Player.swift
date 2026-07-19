@@ -128,8 +128,10 @@ extension Player: VLCMediaPlayerDelegate {
             position = Double(vlc.time.intValue) / 1000
             duration = Double(vlc.media?.length.intValue ?? 0) / 1000
 
-            // SponsorBlock: entering a segment jumps to its end. That is the whole ad-skip feature.
-            if let seg = current?.skipSegments.first(where: { position >= $0.start && position < $0.end - 0.5 }) {
+            // SponsorBlock: entering a segment jumps to its end. That is the whole ad-skip
+            // feature. Settings can turn it off.
+            if UserDefaults.standard.bool(forKey: Pref.sponsorBlock),
+               let seg = current?.skipSegments.first(where: { position >= $0.start && position < $0.end - 0.5 }) {
                 seek(to: seg.end)
                 return
             }
