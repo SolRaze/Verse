@@ -85,6 +85,10 @@ not built.
 - `reference.jpg` in the repo root is the target. Compare against it before changing the drawing.
 - 2026-07-18: sheen reduced to two hues (green/violet), five tonal steps, dark floor 0.12;
   red tape narrowed to the reference's 1.22 tall ratio.
+- 2026-07-19: sheen replaced with 14 colour stops sampled off the reference at the
+  reference's own angles (dark top/right, green→silver upper-left, pink→cream lower-left,
+  yellow bottom, magenta→violet lower-right); hard binary spokes, `HUES`/`LEVELS` knobs gone.
+  Reference moved to `Reference/icon.jpg` (external rename).
 - Regenerate with `Tools/makeicon.swift` (not in any target; see the header for the command).
   Current knobs: `SQH`/`SQL`/`SQR`/`SQC` (tape height / left edge / right edge / corner radius),
   `HUES`/`LEVELS` (sheen), `FLAT=1` for a no-sheen disc, `vinyl` as the style arg for the old one.

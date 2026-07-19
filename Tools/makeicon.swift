@@ -77,46 +77,63 @@ if style == "vinyl" {
         NSGraphicsContext.saveGraphicsState()
         circle(360).addClip()
 
-        // Flat sectors with hard separations, not a sweep. A restricted, deliberately COOL
-        // palette: the full spectrum put reds and magentas directly behind the red square, which
-        // is what made the red read as muddy. In reference.jpg the disc is green/yellow exactly
-        // where the tape sits, so the red has something to pop against. Dark sectors interleave
-        // to keep the reference's unlit bands.
-        // Smooth iridescence cut by dark radial divisions — NOT equal flat sectors. Carving a
-        // disc into equal coloured wedges reads as a pie chart no matter how few colours are
-        // used (tried at 16 and at 8; both were beach balls). In reference.jpg the flatness comes
-        // from smooth colour interrupted by dark bands.
-        //
-        // Hue is restricted to the cool half (green -> cyan -> violet). The full spectrum put
-        // red and magenta directly behind the red square, which is what made the red read as
-        // muddy; in the reference the disc is green where the tape lands.
-        // Posterised: intensity and hue are QUANTISED into discrete steps, so every colour is a
-        // hard-edged shape and there is no gradation anywhere. Adjacent wedges that quantise to
-        // the same colour merge into one visible form — the shapes follow the sheen's lobes, so
-        // this doesn't collapse into the equal-wedge pie chart that failed earlier.
+        // Colour stops sampled off Reference/icon.jpg, at the REFERENCE'S OWN angles
+        // (0° = 3 o'clock, counter-clockwise, matching the drawing's coordinate space):
+        // dark top and right (the tape sits on the dark sector), dark-green -> green -> pale
+        // silver sweeping the upper-left, pink -> cream through the lower-left, warm yellow at
+        // the bottom, orange -> magenta -> violet climbing the lower-right. Nearest-stop pick,
+        // no interpolation — the posterised hard-edged bands stay; dark radial divisions still
+        // cut through so it doesn't collapse into a pie chart.
+        let stops: [(ang: Double, h: CGFloat, s: CGFloat, b: CGFloat)] = [
+            (10, 0, 0, 0.12),               // right: unlit, under the tape
+            (50, 0.20, 0.50, 0.25),         // upper-right: dark olive-bronze
+            (90, 0, 0, 0.12),               // top: unlit
+            (130, 0.33, 0.70, 0.35),        // dark green
+            (155, 0.35, 0.65, 0.62),        // green
+            (175, 0.42, 0.18, 0.88),        // pale silver-teal (the lit left edge)
+            (195, 0.85, 0.15, 0.85),        // pale lavender
+            (220, 0.93, 0.30, 0.80),        // pink
+            (250, 0.13, 0.35, 0.90),        // cream
+            (270, 0.12, 0.50, 0.85),        // bottom: warm yellow
+            (290, 0.08, 0.55, 0.60),        // orange-tan
+            (310, 0.88, 0.60, 0.55),        // magenta
+            (330, 0.78, 0.65, 0.40),        // violet
+            (350, 0.83, 0.60, 0.22),        // dark maroon-violet fading into the tape
+        ]
+        func nearestStop(_ ang: Double) -> (h: CGFloat, s: CGFloat, b: CGFloat) {
+            var best = stops[0], bestD = 999.0
+            for s in stops {
+                var d = abs(ang - s.ang).truncatingRemainder(dividingBy: 360)
+                if d > 180 { d = 360 - d }
+                if d < bestD { bestD = d; best = s }
+            }
+            return (best.h, best.s, best.b)
+        }
+
+        // Thin unlit spokes, HARD-edged — a smooth falloff here reads as airbrush and breaks
+        // the posterised look. Inside a spoke the wedge drops straight to the dark floor.
         let divisions = [30.0, 90, 150, 210, 270, 330]
-        // Two hues, five tonal steps: fewer colours, more depth in the dark end (inbox note).
-        let levels = Double(ProcessInfo.processInfo.environment["LEVELS"].flatMap(Double.init) ?? 5)
-        let hues = Double(ProcessInfo.processInfo.environment["HUES"].flatMap(Double.init) ?? 2)
+        func inSpoke(_ ang: Double) -> Bool {
+            divisions.contains { d in
+                var dd = abs(ang - d).truncatingRemainder(dividingBy: 360)
+                if dd > 180 { dd = 360 - dd }
+                return dd < 5
+            }
+        }
+
         let steps = 1440
         for i in 0..<steps {
             let ang = Double(i) / Double(steps) * 360
-            var m = max(sheen(ang, around: 0, width: 78), sheen(ang, around: 180, width: 78))
-            for d in divisions { m *= 1 - 0.92 * sheen(ang, around: d, width: 9) }
-            m = (m * (levels - 1)).rounded() / (levels - 1)            // tonal steps
-            let t = ((ang / 180).truncatingRemainder(dividingBy: 1) * (hues - 1)).rounded()
-                / (hues - 1)                                           // hue steps, two cycles
+            let stop = nearestStop(ang)
             let wedge = NSBezierPath()
             wedge.move(to: c)
             // +0.5° overlap: exactly abutting wedges leave hairline seams of the layer beneath.
             wedge.appendArc(withCenter: c, radius: 360,
                             startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
             wedge.close()
-            // Saturation stays FULL on every lit step — scaling it with intensity turned the
-            // middle tones into muddy grey-teal. Only brightness carries the tonal separation.
-            NSColor(calibratedHue: CGFloat(0.28 + 0.45 * t),
-                    saturation: m == 0 ? 0 : 0.72,
-                    brightness: CGFloat(0.12 + 0.86 * m), alpha: 1).setFill()
+            let dark = inSpoke(ang)
+            NSColor(calibratedHue: stop.h, saturation: dark ? 0 : stop.s,
+                    brightness: dark ? 0.12 : stop.b, alpha: 1).setFill()
             wedge.fill()
         }
         NSGraphicsContext.restoreGraphicsState()
