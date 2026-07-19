@@ -89,6 +89,10 @@ not built.
   reference's own angles (dark top/right, green→silver upper-left, pink→cream lower-left,
   yellow bottom, magenta→violet lower-right); hard binary spokes, `HUES`/`LEVELS` knobs gone.
   Reference moved to `Reference/icon.jpg` (external rename).
+- 2026-07-19: **alternate icons** — Settings › Appearance › App Icon: Red (default), Classic
+  (the old green/violet disc), Purple (light MiniDisc after `Reference/icon2.jpg`, drawn by
+  `makeicon purple`). Alternates live in `AppIcon-Classic`/`AppIcon-Purple` iconsets, wired via
+  `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES` in `project.yml`.
 - Regenerate with `Tools/makeicon.swift` (not in any target; see the header for the command).
   Current knobs: `SQH`/`SQL`/`SQR`/`SQC` (tape height / left edge / right edge / corner radius),
   `HUES`/`LEVELS` (sheen), `FLAT=1` for a no-sheen disc, `vinyl` as the style arg for the old one.

@@ -46,6 +46,8 @@ struct SettingsView: View {
     @AppStorage(Pref.carPlayTextFallback) private var carPlayFallback = false
     @AppStorage(Pref.sponsorBlock) private var sponsorBlock = true
     @State private var cachesCleared = false
+    // Owned by the system, not UserDefaults — read back what's actually set.
+    @State private var appIcon: String? = UIApplication.shared.alternateIconName
 
     var body: some View {
         NavigationStack {
@@ -57,6 +59,14 @@ struct SettingsView: View {
                     ), supportsOpacity: false)
                     if !theme.isEmpty {
                         Button("Reset to White") { theme = "" }
+                    }
+                    Picker("App Icon", selection: $appIcon) {
+                        Text("Red").tag(String?.none)
+                        Text("Classic").tag(String?.some("AppIcon-Classic"))
+                        Text("Purple").tag(String?.some("AppIcon-Purple"))
+                    }
+                    .onChange(of: appIcon) { _, name in
+                        UIApplication.shared.setAlternateIconName(name)
                     }
                 } header: {
                     Text("Appearance")
