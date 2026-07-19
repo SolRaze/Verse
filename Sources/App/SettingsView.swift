@@ -127,10 +127,9 @@ struct IconPickerView: View {
     @Binding var appIcon: String?
 
     static let icons: [(id: String?, label: String, preview: String)] = [
-        (nil, "Verse", "IconPreview-Verse"),
+        (nil, "Verse", "IconPreview-Verse"),   // the classic green/violet disc, primary
         ("AppIcon-Yeezus", "Yeezus", "IconPreview-Yeezus"),
         ("AppIcon-Yandhi", "Yandhi", "IconPreview-Yandhi"),
-        ("AppIcon-Classic", "Classic", "IconPreview-Classic"),
     ]
 
     var body: some View {
