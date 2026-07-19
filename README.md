@@ -45,23 +45,36 @@ with zero entitlements. See `Sources/Core/NowPlaying.swift`.
 - Sideload lifetime: free Apple ID = 7-day provisioning, needs re-signing (use AltStore/SideStore
   to automate). Paid Developer Program ($99/yr) = 1-year provisioning, far less friction.
 
-## Setup
+## Building it yourself
+
+Requirements: a Mac with Xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen), an
+Apple ID (free works — 7-day signing), an iPhone on iOS 26+.
 
 ```sh
-brew install xcodegen cocoapods
-cd ~/Projects/Verse
-xcodegen generate
-pod install
-open Verse.xcworkspace
+brew install xcodegen
+git clone https://github.com/SolRaze/Verse && cd Verse
+xcodegen generate          # writes Verse.xcodeproj; SPM pulls VLCKit + YouTubeKit on first build
+open Verse.xcodeproj
 ```
 
-Set your team + bundle id in `project.yml` before generating.
+Set your own team + bundle id in `project.yml` before generating (or change signing in Xcode
+after). Then either press Run in Xcode with your phone selected, or from the CLI:
+
+```sh
+xcodebuild -scheme Verse -destination 'platform=iOS,id=<device-udid>' \
+  -allowProvisioningUpdates build
+xcrun devicectl device install app --device <device-udid> \
+  ~/Library/Developer/Xcode/DerivedData/Verse-*/Build/Products/Debug-iphoneos/Verse.app
+```
+
+`xcrun devicectl list devices` prints the udid. No CocoaPods, no workspace — dependencies are
+pure SPM. Free Apple IDs must rebuild + reinstall every 7 days (or automate with AltStore).
 
 ## Where the real work is
 
 | File | Why it matters |
 |---|---|
-| `Sources/Core/NowPlaying.swift` | The CarPlay surface. Lyric-into-artwork renderer. |
+| `Sources/Core/NowPlaying.swift` | The CarPlay/lock-screen surface + Live Activity lyrics. |
 | `Sources/Core/Lyrics.swift` | LRC parser + LRCLIB client + embedded-tag fallback. |
 | `Sources/Core/Player.swift` | VLCKit engine. Plays every format, audio and video. |
 | `Sources/Core/AirPlayVideo.swift` | AVPlayer path — the only way video reaches the car screen. |
