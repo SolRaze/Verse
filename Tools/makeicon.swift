@@ -15,9 +15,9 @@ let size = 1024.0
 
 // "yandhi" — alternate icon after Reference/icon2.jpg (light MiniDisc): pale plate, pastel
 //   rainbow at that cover's angles, purple tape, silver hub. Posterised like the default.
-// "yeezus" — the 1:1 read of Reference/icon.jpg: light jewel-case plate, SMOOTH interpolated
-//   iridescence (the one drawing where gradation is the point), soft dark divisions, red tape,
-//   silver hub. The posterised default ("cd") stays the primary Verse icon.
+// "yeezus" — the default posterised drawing with the stops colour-corrected closer to
+//   Reference/icon.jpg. Same dark plate, same hard bands — a smooth-gradient version was
+//   drawn once and rejected (2026-07-19): posterised IS the icon's look.
 let yandhi = style == "yandhi"
 let yeezus = style == "yeezus"
 
@@ -33,7 +33,7 @@ rep.size = NSSize(width: size, height: size)
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-let plate = NSColor(calibratedWhite: yandhi || yeezus ? 0.92 : 0.11, alpha: 1)
+let plate = NSColor(calibratedWhite: yandhi ? 0.92 : 0.11, alpha: 1)
 let ink = NSColor.white
 let c = NSPoint(x: size / 2, y: size / 2)
 
@@ -124,25 +124,25 @@ if style == "vinyl" {
             (330, 0.55, 0.45, 0.80),        // blue
             (350, 0.85, 0.35, 0.80),        // pink-violet fading into the tape
         ]
-        let stops = yandhi ? pale : dark
-
-        /// Smooth angular interpolation between stops (yeezus only) — shortest-path hue lerp.
-        func interpStop(_ ang: Double) -> (h: CGFloat, s: CGFloat, b: CGFloat) {
-            for i in 0..<stops.count {
-                let a = stops[i], b = stops[(i + 1) % stops.count]
-                let end = i + 1 == stops.count ? b.ang + 360 : b.ang
-                let x = ang < a.ang ? ang + 360 : ang
-                if x >= a.ang && x <= end {
-                    let t = CGFloat((x - a.ang) / (end - a.ang))
-                    var dh = b.h - a.h
-                    if dh > 0.5 { dh -= 1 }; if dh < -0.5 { dh += 1 }
-                    var h = a.h + dh * t
-                    if h < 0 { h += 1 }; if h > 1 { h -= 1 }
-                    return (h, a.s + (b.s - a.s) * t, a.b + (b.b - a.b) * t)
-                }
-            }
-            return (stops[0].h, stops[0].s, stops[0].b)
-        }
+        // Yeezus: the same bands, a few values pulled closer to the photo — oliver greens,
+        // brighter lit left edge, salmon instead of pink, pinker magenta.
+        let refined: [(ang: Double, h: CGFloat, s: CGFloat, b: CGFloat)] = [
+            (10, 0, 0, 0.12),
+            (50, 0.17, 0.50, 0.28),         // bronze-olive
+            (90, 0, 0, 0.12),
+            (130, 0.30, 0.60, 0.35),        // olive-green
+            (155, 0.33, 0.60, 0.58),
+            (175, 0.42, 0.15, 0.92),        // brighter silver edge
+            (195, 0.85, 0.15, 0.85),
+            (220, 0.96, 0.40, 0.80),        // salmon
+            (250, 0.12, 0.40, 0.90),
+            (270, 0.12, 0.55, 0.85),
+            (290, 0.08, 0.55, 0.55),
+            (310, 0.91, 0.55, 0.58),        // pinker magenta
+            (330, 0.78, 0.65, 0.40),
+            (350, 0.86, 0.60, 0.22),
+        ]
+        let stops = yandhi ? pale : yeezus ? refined : dark
         func nearestStop(_ ang: Double) -> (h: CGFloat, s: CGFloat, b: CGFloat) {
             var best = stops[0], bestD = 999.0
             for s in stops {
@@ -174,18 +174,9 @@ if style == "vinyl" {
             wedge.appendArc(withCenter: c, radius: 360,
                             startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
             wedge.close()
-            if yeezus {
-                // Smooth colour, soft dark divisions — how the reference actually photographs.
-                let sm = interpStop(ang)
-                var damp = 1.0
-                for d in divisions { damp *= 1 - 0.92 * sheen(ang, around: d, width: 9) }
-                NSColor(calibratedHue: sm.h, saturation: sm.s,
-                        brightness: 0.12 + (sm.b - 0.12) * CGFloat(damp), alpha: 1).setFill()
-            } else {
-                let spoke = inSpoke(ang)
-                NSColor(calibratedHue: stop.h, saturation: spoke ? 0 : stop.s,
-                        brightness: spoke ? (yandhi ? 0.62 : 0.12) : stop.b, alpha: 1).setFill()
-            }
+            let spoke = inSpoke(ang)
+            NSColor(calibratedHue: stop.h, saturation: spoke ? 0 : stop.s,
+                    brightness: spoke ? (yandhi ? 0.62 : 0.12) : stop.b, alpha: 1).setFill()
             wedge.fill()
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -230,7 +221,7 @@ if style == "vinyl" {
 
     // Centre hub matches the sheen's unlit tone, not the plate — a plate-coloured bore reads
     // as another hole, this reads as the disc's own centre. Light icons: silver hub.
-    let hub = NSColor(calibratedWhite: yandhi ? 0.70 : yeezus ? 0.78 : 0.12, alpha: 1)
+    let hub = NSColor(calibratedWhite: yandhi ? 0.70 : 0.12, alpha: 1)
     hub.setFill()
     circle(150).fill()
     ink.setFill()
