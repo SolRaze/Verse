@@ -61,6 +61,8 @@ Still open here: more tabs (Locations, per Jellyfin below).
   Library. Guarded by `UITests/SearchTests.swift`.
 - Favourites landed as its own collection row (2026-07-18), not a filter — liked tracks with
   the same sort menu.
+- 2026-07-19: the collection rows are inlaid per the reference (user request) — no card
+  behind them, big title, accent-tinted icon. The folder cards below keep the grouped look.
 - Still open: grid/list toggle, Downloads filter, "imports" shelf on Home.
 
 ## Import flow "template" — decided 2026-07-18, not built

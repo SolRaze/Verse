@@ -153,8 +153,7 @@ struct LibraryView: View {
             .sheet(item: $infoItem) { item in InfoSheet(item: item) }
             .sheet(item: $moveRequest) { req in MoveSheet(request: req) }
         }
-        .tint(.white)                 // monotone: one accent, no colored chrome
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.dark)  // tint inherits from RootView (theme-aware)
     }
 
     // MARK: sections
@@ -166,16 +165,20 @@ struct LibraryView: View {
 
     /// Apple-Music-style entry rows: Playlists / Artists / Albums / Songs (inbox-2). Remote
     /// playlists moved off the root into the Playlists page.
+    /// Inlaid per `reference/music-library.png` (inbox-3): no card behind these rows — big
+    /// title, accent-tinted icon, straight on the background like Apple Music's Library list.
     private var collectionsSection: some View {
         Section {
             ForEach(CollectionKind.allCases, id: \.self) { kind in
                 NavigationLink(value: kind) {
                     Label {
-                        Text(kind.rawValue)
+                        Text(kind.rawValue).font(.title3)
                     } icon: {
-                        Image(systemName: kind.icon).foregroundStyle(.secondary)
+                        Image(systemName: kind.icon).foregroundStyle(.tint)
                     }
+                    .padding(.vertical, 6)
                 }
+                .listRowBackground(Color.clear)
             }
         }
     }
@@ -805,7 +808,7 @@ private struct MoveSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
-        .tint(.white)
+        .themedTint()
     }
 
     private func pick(_ path: [String]) { request.onPick(path); dismiss() }
@@ -844,7 +847,7 @@ struct InfoSheet: View {      // shared with the player's burger menu
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .tint(.white)
+        .themedTint()
         .task { info = await library.info(for: item) }
     }
 
@@ -878,6 +881,6 @@ private struct EditItemSheet: View {
             }
         }
         .presentationDetents([.height(220)])
-        .tint(.white)
+        .themedTint()
     }
 }
