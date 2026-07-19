@@ -1,64 +1,58 @@
 # Verse
 
-Personal media player for iPhone (17e, iOS 26). Sideload-only. Plays anything, shows synced
-lyrics, streams YouTube ad-free, and puts all of it on the CarPlay Now Playing screen.
+Personal media player for iPhone (iOS 26). Sideload-only, single-user. Plays every format,
+imports YouTube / Spotify / SoundCloud playlists, shows synced lyrics, and lands on the
+CarPlay Now Playing screen.
 
-## Read this before you write any code
+## Features
 
-**CarPlay video exists since iOS 26, with three hard constraints.** "AirPlay video in the car"
-lets any app that supports AirPlay video streaming play video on the CarPlay display. The
-constraints, all enforced by the system: (1) **parked only** — driving stops playback; (2) the
-**car must support the feature** (an MFi capability automakers opt into — factory support is
-still nearly nonexistent as of mid-2026); (3) the media must go through **AVPlayer external
-playback** — VLC decodes locally and can never AirPlay video. `Sources/Core/AirPlayVideo.swift`
-is that path: AVPlayer-compatible content (mp4/mov/HLS, incl. every extracted YouTube stream)
-routes there so the AirPlay picker can offer the car; everything else stays on VLC, phone only.
+- One VLC engine for all audio and video — mp3, flac, opus, ogg, ape, mkv, anything
+- Synced lyrics: sidecar `.lrc` → embedded tags → LRCLIB, cached on disk
+- Per-line lyrics as a Lock Screen Live Activity
+- YouTube streaming with SponsorBlock segment skipping
+- Playlist import from YouTube, Spotify and SoundCloud — no API keys
+- Folder-based library (the folder tree is the organization), play counts, favourites
+- Mini player pill, waveform scrubber drawn from decoded audio, full-range accent colour
+- Widget + lock screen / CarPlay transport controls
 
-iOS 27 adds a proper CarPlay **video app entitlement** (browse UI on the car screen, parked
-playback). It requires Apple approving your app — plausible for Netflix, not for a sideloaded
-personal YouTube player. File at https://developer.apple.com/contact/carplay/ if you want to try;
-build nothing that depends on it.
+## CarPlay facts
 
-**CarPlay browse UI for audio also needs an entitlement** (`com.apple.developer.carplay-audio`),
-same approval path. Assume it is not coming.
-
-**If the car doesn't support AirPlay video in the car** (today: almost all of them), no app code
-helps. The working fallbacks are hardware: an Android "AI box" in the CarPlay USB port, or an
-aftermarket head unit that supports the feature.
-
-**What works with no entitlement at all:** any iOS app that plays audio, configures
-`AVAudioSession(.playback)`, and populates `MPNowPlayingInfoCenter` + `MPRemoteCommandCenter`
-appears on the CarPlay Now Playing screen automatically. Transport controls, scrubber, metadata,
-and artwork all work. That is the entire CarPlay surface for this project, and it is enough.
-
-**The lyrics trick:** CarPlay renders the now-playing artwork large. Verse renders the current
-synced-lyric window (previous / current / next lines) into a `UIImage` and publishes that as
-`MPMediaItemArtwork`, refreshed on each line change. Result: big synced lyrics on the car screen
-with zero entitlements. See `Sources/Core/NowPlaying.swift`.
+- With no entitlement, an audio app reaches CarPlay only via the Now Playing screen:
+  `AVAudioSession(.playback)` + `MPNowPlayingInfoCenter` + `MPRemoteCommandCenter` provide
+  transport, scrubber, metadata and artwork. That is Verse's entire CarPlay surface.
+- A CarPlay browse UI requires the `com.apple.developer.carplay-audio` entitlement, granted
+  per-app by Apple. Out of reach for a sideloaded app; nothing here depends on it.
+- Video on the car screen ("AirPlay video in the car", iOS 26) has three system-enforced
+  constraints: parked only, the car must support the MFi capability (nearly none do as of
+  mid-2026), and the media must use AVPlayer external playback — VLC decodes locally and
+  cannot qualify. `Sources/Core/AirPlayVideo.swift` routes AVPlayer-compatible content
+  (mp4/mov/HLS, including extracted YouTube streams) there; everything else stays on the phone.
+- In-car lyrics: an optional setting shows the current line in the artist text field. CarPlay
+  does not render Live Activities.
 
 ## Legal / distribution
 
-- YouTube stream extraction violates YouTube's Terms of Service. App Store rejection is certain.
-  This is a sideload-only personal build. Ship it to yourself, nobody else.
-- Extraction breaks whenever YouTube rotates its signature cipher. Expect to bump `YouTubeKit`
-  every few months. Build the UI so a failed extraction is a visible error, not a crash.
-- Sideload lifetime: free Apple ID = 7-day provisioning, needs re-signing (use AltStore/SideStore
-  to automate). Paid Developer Program ($99/yr) = 1-year provisioning, far less friction.
+- YouTube stream extraction violates YouTube's Terms of Service; App Store distribution is
+  impossible. Sideload-only, personal use.
+- Extraction breaks whenever YouTube rotates its signature cipher — `YouTubeKit` needs a bump
+  every few months. Failed extraction surfaces as a visible error, not a crash.
+- Free Apple ID signing lasts 7 days per install (AltStore/SideStore automate re-signing);
+  the paid Developer Program signs for a year.
 
-## Building it yourself
+## Building
 
-Requirements: a Mac with Xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen), an
-Apple ID (free works — 7-day signing), an iPhone on iOS 26+.
+Requirements: Mac with Xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen), an
+Apple ID (free works), an iPhone on iOS 26+.
 
 ```sh
 brew install xcodegen
 git clone https://github.com/SolRaze/Verse && cd Verse
-xcodegen generate          # writes Verse.xcodeproj; SPM pulls VLCKit + YouTubeKit on first build
+xcodegen generate     # writes Verse.xcodeproj; SPM pulls VLCKit + YouTubeKit on first build
 open Verse.xcodeproj
 ```
 
-Set your own team + bundle id in `project.yml` before generating (or change signing in Xcode
-after). Then either press Run in Xcode with your phone selected, or from the CLI:
+Team + bundle id belong in `project.yml` (or change signing in Xcode after generating).
+Run from Xcode with a phone selected, or from the CLI:
 
 ```sh
 xcodebuild -scheme Verse -destination 'platform=iOS,id=<device-udid>' \
@@ -67,15 +61,15 @@ xcrun devicectl device install app --device <device-udid> \
   ~/Library/Developer/Xcode/DerivedData/Verse-*/Build/Products/Debug-iphoneos/Verse.app
 ```
 
-`xcrun devicectl list devices` prints the udid. No CocoaPods, no workspace — dependencies are
-pure SPM. Free Apple IDs must rebuild + reinstall every 7 days (or automate with AltStore).
+`xcrun devicectl list devices` prints the udid. Dependencies are pure SPM — no CocoaPods,
+no workspace.
 
-## Where the real work is
+## Layout
 
-| File | Why it matters |
+| File | What it is |
 |---|---|
-| `Sources/Core/NowPlaying.swift` | The CarPlay/lock-screen surface + Live Activity lyrics. |
+| `Sources/Core/Player.swift` | VLCKit engine — every format, audio and video. |
+| `Sources/Core/NowPlaying.swift` | CarPlay / lock-screen surface + Live Activity lyrics. |
 | `Sources/Core/Lyrics.swift` | LRC parser + LRCLIB client + embedded-tag fallback. |
-| `Sources/Core/Player.swift` | VLCKit engine. Plays every format, audio and video. |
-| `Sources/Core/AirPlayVideo.swift` | AVPlayer path — the only way video reaches the car screen. |
-| `SPEC.md` | Full build brief. Hand this to the agent. |
+| `Sources/Core/AirPlayVideo.swift` | AVPlayer path — the only route video takes to the car screen. |
+| `SPEC.md` | Full project brief. |
