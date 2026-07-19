@@ -9,9 +9,13 @@ import AppKit
 
 _ = NSApplication.shared          // AppKit needs an app instance before NSImage/drawing works
 
-let style = CommandLine.arguments[1]        // "vinyl" | "cd"
+let style = CommandLine.arguments[1]        // "vinyl" | "cd" | "purple"
 let path = CommandLine.arguments[2]
 let size = 1024.0
+
+// "purple" = the alternate icon after Reference/icon2.jpg (the light MiniDisc cover): pale
+// plate, pastel rainbow sheen at that reference's own angles, purple tape, silver hub.
+let light = style == "purple"
 
 // Explicit opaque bitmap: lockFocus() honours the Retina backing scale (silently yielding 2048
 // with alpha) and traps with no window context. 3 samples at 32bpp maps to alphaNoneSkipLast —
@@ -25,7 +29,7 @@ rep.size = NSSize(width: size, height: size)
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-let plate = NSColor(calibratedWhite: 0.11, alpha: 1)
+let plate = NSColor(calibratedWhite: light ? 0.92 : 0.11, alpha: 1)
 let ink = NSColor.white
 let c = NSPoint(x: size / 2, y: size / 2)
 
@@ -84,7 +88,7 @@ if style == "vinyl" {
         // the bottom, orange -> magenta -> violet climbing the lower-right. Nearest-stop pick,
         // no interpolation — the posterised hard-edged bands stay; dark radial divisions still
         // cut through so it doesn't collapse into a pie chart.
-        let stops: [(ang: Double, h: CGFloat, s: CGFloat, b: CGFloat)] = [
+        let dark: [(ang: Double, h: CGFloat, s: CGFloat, b: CGFloat)] = [
             (10, 0, 0, 0.12),               // right: unlit, under the tape
             (50, 0.20, 0.50, 0.25),         // upper-right: dark olive-bronze
             (90, 0, 0, 0.12),               // top: unlit
@@ -100,6 +104,23 @@ if style == "vinyl" {
             (330, 0.78, 0.65, 0.40),        // violet
             (350, 0.83, 0.60, 0.22),        // dark maroon-violet fading into the tape
         ]
+        // Reference/icon2.jpg: bright pastel rainbow on a silver disc.
+        let pale: [(ang: Double, h: CGFloat, s: CGFloat, b: CGFloat)] = [
+            (10, 0.90, 0.25, 0.85),         // right, under the tape: pale pink
+            (50, 0.35, 0.30, 0.80),         // pastel green
+            (90, 0.14, 0.45, 0.95),         // top: bright yellow
+            (120, 0.08, 0.55, 0.90),        // orange
+            (145, 0.95, 0.45, 0.85),        // pink
+            (175, 0.45, 0.50, 0.75),        // teal
+            (200, 0, 0, 0.45),              // the dark grey band on the left
+            (225, 0.90, 0.40, 0.70),        // mauve
+            (255, 0.98, 0.60, 0.80),        // red-pink
+            (275, 0.60, 0.45, 0.75),        // blue
+            (305, 0.40, 0.50, 0.80),        // green-cyan
+            (330, 0.55, 0.45, 0.80),        // blue
+            (350, 0.85, 0.35, 0.80),        // pink-violet fading into the tape
+        ]
+        let stops = light ? pale : dark
         func nearestStop(_ ang: Double) -> (h: CGFloat, s: CGFloat, b: CGFloat) {
             var best = stops[0], bestD = 999.0
             for s in stops {
@@ -131,9 +152,9 @@ if style == "vinyl" {
             wedge.appendArc(withCenter: c, radius: 360,
                             startAngle: ang, endAngle: ang + 360 / Double(steps) + 0.5)
             wedge.close()
-            let dark = inSpoke(ang)
-            NSColor(calibratedHue: stop.h, saturation: dark ? 0 : stop.s,
-                    brightness: dark ? 0.12 : stop.b, alpha: 1).setFill()
+            let spoke = inSpoke(ang)
+            NSColor(calibratedHue: stop.h, saturation: spoke ? 0 : stop.s,
+                    brightness: spoke ? (light ? 0.62 : 0.12) : stop.b, alpha: 1).setFill()
             wedge.fill()
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -172,12 +193,13 @@ if style == "vinyl" {
                    startAngle: 180, endAngle: 90, clockwise: true)
     tape.line(to: NSPoint(x: sq.maxX, y: sq.maxY))
     tape.close()
-    NSColor(calibratedRed: 0.94, green: 0.14, blue: 0.11, alpha: 1).setFill()
+    (light ? NSColor(calibratedHue: 0.82, saturation: 0.55, brightness: 0.62, alpha: 1)
+           : NSColor(calibratedRed: 0.94, green: 0.14, blue: 0.11, alpha: 1)).setFill()
     tape.fill()
 
-    // Centre hub matches the sheen's darkest tone (m = 0 -> brightness 0.12), not the plate —
-    // a plate-coloured bore reads as another hole, this reads as the disc's own dark centre.
-    let hub = NSColor(calibratedWhite: 0.12, alpha: 1)
+    // Centre hub matches the sheen's unlit tone, not the plate — a plate-coloured bore reads
+    // as another hole, this reads as the disc's own centre. Light icon: silver hub.
+    let hub = NSColor(calibratedWhite: light ? 0.70 : 0.12, alpha: 1)
     hub.setFill()
     circle(150).fill()
     ink.setFill()
