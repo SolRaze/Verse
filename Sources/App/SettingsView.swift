@@ -60,13 +60,11 @@ struct SettingsView: View {
                     if !theme.isEmpty {
                         Button("Reset to White") { theme = "" }
                     }
-                    Picker("App Icon", selection: $appIcon) {
-                        Text("Red").tag(String?.none)
-                        Text("Classic").tag(String?.some("AppIcon-Classic"))
-                        Text("Purple").tag(String?.some("AppIcon-Purple"))
-                    }
-                    .onChange(of: appIcon) { _, name in
-                        UIApplication.shared.setAlternateIconName(name)
+                    NavigationLink {
+                        IconPickerView(appIcon: $appIcon)
+                    } label: {
+                        LabeledContent("App Icon",
+                                       value: IconPickerView.icons.first { $0.id == appIcon }?.label ?? "Verse")
                     }
                 } header: {
                     Text("Appearance")
@@ -120,5 +118,43 @@ struct SettingsView: View {
             try? FileManager.default.removeItem(at: caches.appendingPathComponent(sub))
         }
         cachesCleared = true
+    }
+}
+
+/// Icon gallery: each choice shown as the actual icon, tap to apply. `id` is the alternate
+/// icon name handed to setAlternateIconName (nil = the primary).
+struct IconPickerView: View {
+    @Binding var appIcon: String?
+
+    static let icons: [(id: String?, label: String, preview: String)] = [
+        (nil, "Verse", "IconPreview-Verse"),
+        ("AppIcon-Yeezus", "Yeezus", "IconPreview-Yeezus"),
+        ("AppIcon-Yandhi", "Yandhi", "IconPreview-Yandhi"),
+        ("AppIcon-Classic", "Classic", "IconPreview-Classic"),
+    ]
+
+    var body: some View {
+        List(Self.icons, id: \.label) { icon in
+            Button {
+                appIcon = icon.id
+                UIApplication.shared.setAlternateIconName(icon.id)
+            } label: {
+                HStack(spacing: 14) {
+                    Image(icon.preview)
+                        .resizable().scaledToFit()
+                        .frame(width: 60, height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 13.5))  // 60pt icon curvature
+                    Text(icon.label)
+                    Spacer()
+                    if appIcon == icon.id {
+                        Image(systemName: "checkmark").fontWeight(.semibold)
+                    }
+                }
+            }
+            .tint(.primary)
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("App Icon")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
