@@ -6,7 +6,6 @@ import SwiftUI
 enum Pref {
     static let theme = "appearance.theme"
     static let waveInMini = "miniPlayer.waveScrubber"
-    static let lyricsInArtwork = "lyrics.inArtwork"
     static let carPlayTextFallback = "lyrics.carPlayTextFallback"
     static let sponsorBlock = "playback.sponsorBlock"
 
@@ -15,15 +14,20 @@ enum Pref {
         UserDefaults.standard.register(defaults: [sponsorBlock: true])
     }
 
-    /// Accent themes. White is the house monotone default; the rest are user-picked exceptions
-    /// to the no-colored-chrome rule, sanctioned via this Settings page (2026-07-19).
-    static let themes: [(name: String, color: Color)] = [
-        ("White", .white), ("Red", .red), ("Orange", .orange), ("Yellow", .yellow),
-        ("Green", .green), ("Blue", .blue), ("Purple", .purple), ("Pink", .pink),
-    ]
+    /// Accent stored as RRGGBB hex; anything unparseable (including the old preset names and
+    /// the empty default) means stock white. Full colour range, user-picked exception to the
+    /// no-colored-chrome rule, sanctioned via this Settings page (2026-07-19).
+    static func color(for stored: String) -> Color {
+        guard stored.count == 6, let v = UInt32(stored, radix: 16) else { return .white }
+        return Color(red: Double((v >> 16) & 0xFF) / 255,
+                     green: Double((v >> 8) & 0xFF) / 255,
+                     blue: Double(v & 0xFF) / 255)
+    }
 
-    static func color(for name: String) -> Color {
-        themes.first { $0.name == name }?.color ?? .white
+    static func hex(of color: Color) -> String {
+        var r: CGFloat = 1, g: CGFloat = 1, b: CGFloat = 1, a: CGFloat = 1
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
     }
 }
 
@@ -37,9 +41,8 @@ extension View {
 
 /// The personalization hub (inbox-3): every user-tweakable knob lives here, grouped by surface.
 struct SettingsView: View {
-    @AppStorage(Pref.theme) private var theme = "White"
+    @AppStorage(Pref.theme) private var theme = ""
     @AppStorage(Pref.waveInMini) private var waveInMini = false
-    @AppStorage(Pref.lyricsInArtwork) private var lyricsInArtwork = false
     @AppStorage(Pref.carPlayTextFallback) private var carPlayFallback = false
     @AppStorage(Pref.sponsorBlock) private var sponsorBlock = true
     @State private var cachesCleared = false
@@ -48,21 +51,17 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section {
-                    Picker("Accent Colour", selection: $theme) {
-                        ForEach(Pref.themes, id: \.name) { t in
-                            Label {
-                                Text(t.name)
-                            } icon: {
-                                Circle().fill(t.color).frame(width: 18, height: 18)
-                            }
-                            .tag(t.name)
-                        }
+                    ColorPicker("Accent Colour", selection: Binding(
+                        get: { Pref.color(for: theme) },
+                        set: { theme = Pref.hex(of: $0) }
+                    ), supportsOpacity: false)
+                    if !theme.isEmpty {
+                        Button("Reset to White") { theme = "" }
                     }
-                    .pickerStyle(.navigationLink)
                 } header: {
                     Text("Appearance")
                 } footer: {
-                    Text("Tints buttons and controls everywhere. White is the stock look.")
+                    Text("Tints buttons and controls everywhere — any colour. White is the stock look.")
                 }
 
                 Section {
@@ -74,12 +73,11 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Lyrics on Artwork", isOn: $lyricsInArtwork)
-                    Toggle("CarPlay Text Fallback", isOn: $carPlayFallback)
+                    Toggle("CarPlay Lyrics", isOn: $carPlayFallback)
                 } header: {
                     Text("Lyrics")
                 } footer: {
-                    Text("Lyrics on Artwork renders the current line into the Lock Screen and CarPlay cover. Text Fallback pushes the line into the artist field instead, for head units that cache artwork.")
+                    Text("Shows the current lyric line in the artist field on CarPlay and the Lock Screen. Off, the artist shows normally; per-line lyrics still run in the Live Activity.")
                 }
 
                 Section {

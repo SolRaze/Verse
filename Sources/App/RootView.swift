@@ -7,7 +7,7 @@ struct RootView: View {
 
     enum Tab { case home, library, search }
     @State private var tab: Tab = .home
-    @AppStorage(Pref.theme) private var theme = "White"
+    @AppStorage(Pref.theme) private var theme = ""
 
     var body: some View {
         // The accessory is ALWAYS attached (Apple-Music style, inbox-2): the dock must look the

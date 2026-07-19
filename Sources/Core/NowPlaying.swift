@@ -31,23 +31,16 @@ final class NowPlaying {
         var seek: (TimeInterval) -> Void
     }
 
-    /// Some head units cache artwork and won't refresh it per lyric line. Settings toggle; it
-    /// pushes the current line into the artist field instead, which every unit updates reliably.
+    /// "CarPlay Lyrics" in Settings: pushes the current line into the artist field, which every
+    /// head unit updates reliably. (The old lyric-into-artwork renderer is gone — 2026-07-19,
+    /// user request; artwork is always the real cover now.)
     var lyricsInTextFieldFallback: Bool {
         UserDefaults.standard.bool(forKey: Pref.carPlayTextFallback)
-    }
-
-    /// Master switch for rendering lyric lines into the published artwork. OFF by default (user
-    /// request, inbox-2): lock screen and car show the real album art. Per-line lyrics still
-    /// reach the Live Activity. Settings toggle restores karaoke artwork.
-    var lyricsInArtwork: Bool {
-        UserDefaults.standard.bool(forKey: Pref.lyricsInArtwork)
     }
 
     private let center = MPNowPlayingInfoCenter.default()
     private var track: Track?
     private var lyrics: Lyrics?
-    private var shownLineIndex: Int??  // nil = never drawn; .some(nil) = drawn "before first line"
 
     init(commands: Commands) {
         let rc = MPRemoteCommandCenter.shared()
@@ -72,7 +65,6 @@ final class NowPlaying {
     func begin(track: Track, lyrics: Lyrics?) {
         self.track = track
         self.lyrics = lyrics
-        self.shownLineIndex = nil
         publish(position: 0, playing: false, image: track.artwork, lyricLine: nil)
         startActivity()
     }
@@ -89,7 +81,6 @@ final class NowPlaying {
         }
         if let lyrics {
             self.lyrics = lyrics
-            shownLineIndex = nil
             if activity == nil { startActivity() }
         }
     }
@@ -101,10 +92,9 @@ final class NowPlaying {
         endActivity()
     }
 
-    /// Call on every player tick and on every play/pause/seek.
-    ///
-    /// Cheap when nothing changed: the artwork is only re-rendered when the active lyric line
-    /// actually changes, which is seconds apart. Never drive this off a display link.
+    /// Call on every player tick and on every play/pause/seek. Artwork never changes here —
+    /// the real cover published by begin()/attach() stays; ticks only refresh timing (and the
+    /// lyric line in the artist field when the CarPlay Lyrics toggle is on).
     func update(position: TimeInterval, playing: Bool) {
         guard let track else { return }
 
@@ -115,20 +105,8 @@ final class NowPlaying {
 
         let index = lyrics.lineIndex(at: position)
         syncActivity(index: index, playing: playing)
-        guard lyricsInArtwork else {
-            // Real album art was published in begin(); image nil keeps it and updates timing only.
-            publish(position: position, playing: playing, image: nil, lyricLine: nil)
-            return
-        }
-        if let shown = shownLineIndex, shown == index {
-            publish(position: position, playing: playing, image: nil, lyricLine: nil)  // timing only
-            return
-        }
-        shownLineIndex = .some(index)
-
-        let line = index.map { lyrics.lines[$0].text }
-        let image = lyricsInTextFieldFallback ? track.artwork : render(lyrics: lyrics, current: index)
-        publish(position: position, playing: playing, image: image, lyricLine: line)
+        let line = lyricsInTextFieldFallback ? index.map { lyrics.lines[$0].text } : nil
+        publish(position: position, playing: playing, image: nil, lyricLine: line)
     }
 
     /// `image: nil` keeps whatever artwork is already published — reassigning MPMediaItemArtwork
@@ -213,61 +191,5 @@ final class NowPlaying {
     private struct Sent<T>: @unchecked Sendable {
         let value: T
         init(_ value: T) { self.value = value }
-    }
-
-    // MARK: - Lyrics -> artwork
-
-    /// Draws previous / current / next lines onto a square canvas, current line emphasized.
-    /// Square because that is what every head unit expects an album cover to be.
-    private func render(lyrics: Lyrics, current: Int?) -> UIImage {
-        let side: CGFloat = 600
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
-
-        // A window of lines around the current one, so the driver has context without reading.
-        let window: [(text: String, active: Bool)] = {
-            guard let current else {
-                return lyrics.lines.prefix(2).map { ($0.text, false) }
-            }
-            let lo = max(0, current - 1)
-            let hi = min(lyrics.lines.count - 1, current + 2)
-            return (lo...hi).map { (lyrics.lines[$0].text, $0 == current) }
-        }()
-
-        return renderer.image { ctx in
-            UIColor.black.setFill()
-            ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
-
-            let inset: CGFloat = 40
-            let width = side - inset * 2
-            var blocks: [(NSAttributedString, CGRect)] = []
-            var totalHeight: CGFloat = 0
-
-            for entry in window where !entry.text.isEmpty {
-                let style = NSMutableParagraphStyle()
-                style.alignment = .center
-                style.lineBreakMode = .byWordWrapping
-
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: entry.active ? 46 : 32,
-                                             weight: entry.active ? .bold : .regular),
-                    .foregroundColor: entry.active ? UIColor.white : UIColor(white: 1, alpha: 0.4),
-                    .paragraphStyle: style,
-                ]
-                let string = NSAttributedString(string: entry.text, attributes: attrs)
-                let bounds = string.boundingRect(
-                    with: CGSize(width: width, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-
-                blocks.append((string, CGRect(x: inset, y: 0, width: width, height: ceil(bounds.height))))
-                totalHeight += ceil(bounds.height) + 18
-            }
-
-            var y = max(inset, (side - totalHeight) / 2)
-            for (string, rect) in blocks {
-                string.draw(with: rect.offsetBy(dx: 0, dy: y),
-                            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-                y += rect.height + 18
-            }
-        }
     }
 }
