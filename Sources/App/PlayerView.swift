@@ -241,7 +241,13 @@ private struct LyricsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Files-style top bar: track name centered, close right. The clear square mirrors
+            // the close button so the title actually centers.
             HStack {
+                Color.clear.frame(width: 34, height: 34)
+                Spacer()
+                Text(player.current?.title ?? "")
+                    .font(.subheadline.weight(.semibold)).lineLimit(1)
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -255,29 +261,20 @@ private struct LyricsScreen: View {
 
             LyricsPane(lyrics: lyrics, position: player.position) { player.seek(to: $0) }
 
-            // The track pill that stays put while reading — the wave scrubber lives inside it.
-            // Real audio drawn when AVFoundation can decode the file; Files-style ticks when it
-            // can't (VLC-only codecs, remote streams — VLC exposes no decoded samples).
-            VStack(spacing: 8) {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(player.current?.title ?? "").font(.footnote.weight(.semibold)).lineLimit(1)
-                        Text(player.current?.artist ?? "").font(.caption2)
-                            .foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
+            // The wave alone in a capsule, no name (the top bar carries it) — same pill
+            // language as the dock mini player, per reference/files-layer.png. Real audio when
+            // AVFoundation can decode the file; Files-style ticks when it can't (VLC-only
+            // codecs, remote streams — VLC exposes no decoded samples).
+            WaveScrubber(samples: samples,
+                         position: player.position,
+                         duration: player.duration) { player.seek(to: $0) }
+                .frame(height: 30)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background(.white.opacity(0.08), in: Capsule())
+                .task(id: player.current?.url) {
+                    samples = nil
+                    if let url = player.current?.url { samples = await Waveform.load(url: url) }
                 }
-                WaveScrubber(samples: samples,
-                             position: player.position,
-                             duration: player.duration) { player.seek(to: $0) }
-                    .frame(height: 28)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
-            .task(id: player.current?.url) {
-                samples = nil
-                if let url = player.current?.url { samples = await Waveform.load(url: url) }
-            }
 
             HStack {
                 Button { player.toggle() } label: {
