@@ -148,8 +148,10 @@ Left to wire:
 
 **Live Activity — this is where per-line lyrics go.** ActivityKit, updated from the app via
 `activity.update()` while background audio keeps the app alive. Lands on the Lock Screen (and the
-Dynamic Island if the device has one). Not yet built; this is the right home for karaoke lyrics
-outside the car.
+Dynamic Island if the device has one). Built — `LyricActivity.swift` defines the attributes,
+`NowPlaying` starts/updates/ends it (orphan cleanup on launch, foreground resume for the
+background-start case), `VerseWidget`'s `LyricLiveActivity` renders it. This is the home for
+karaoke lyrics outside the car.
 
 **Lock screen now-playing — already done, free.** `NowPlaying.swift` publishes the lyric-artwork
 image to `MPNowPlayingInfoCenter`, so the lock screen gets the same big synced lyrics the car does.
