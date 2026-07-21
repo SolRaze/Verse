@@ -199,8 +199,12 @@ final class DeviceVerifyTests: XCTestCase {
         func myTracks() -> [Verse.LibraryItem] {
             store.mostPlayedTracks(limit: 50).filter { $0.folders.first == rootName }
         }
-        func myAlbums() -> [(path: [String], plays: Int)] {
-            store.mostPlayedAlbums(limit: 50).filter { $0.path.first == rootName }
+        // Albums are metadata-keyed now (albumKey: tag, else containing folder name) — scope
+        // to albums whose tracks live under this test's unique root.
+        func myAlbums() -> [(name: String, plays: Int)] {
+            store.mostPlayedAlbums(limit: 50).filter { a in
+                store.items.contains { $0.folders.first == rootName && $0.albumKey == a.name }
+            }
         }
 
         XCTAssertTrue(myTracks().isEmpty, "nothing played yet")
@@ -218,9 +222,9 @@ final class DeviceVerifyTests: XCTestCase {
 
         // A (2 plays) outranks B (1). The import root holds no tracks directly, so it must not
         // rank — otherwise every play would count twice, once for the album and once for its parent.
-        XCTAssertEqual(myAlbums().map { $0.path.last }, ["A", "B"])
+        XCTAssertEqual(myAlbums().map(\.name), ["A", "B"])
         XCTAssertEqual(myAlbums().first?.plays, 2)
-        XCTAssertFalse(myAlbums().contains { $0.path == [rootName] }, "parent folder must not rank")
+        XCTAssertFalse(myAlbums().contains { $0.name == rootName }, "parent folder must not rank")
 
         // Remote playlist entries are synthesised per play and were never stored — counting one
         // must be a no-op, not a crash.

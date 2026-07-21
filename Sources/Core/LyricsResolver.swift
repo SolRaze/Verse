@@ -39,6 +39,21 @@ enum LyricsResolver {
         return nil
     }
 
+    /// Raw cached text for a track — "" means a cached miss. For the sidecar export.
+    static func cachedRaw(for cacheKey: String) -> String? {
+        try? String(contentsOf: cacheDir.appendingPathComponent(cacheKey + ".lrc"),
+                    encoding: .utf8)
+    }
+
+    /// Drop only a cached MISS (empty file), so a forced re-fetch actually retries LRCLIB.
+    /// Found lyrics stay cached.
+    static func invalidateNegative(cacheKey: String) {
+        let f = cacheDir.appendingPathComponent(cacheKey + ".lrc")
+        if (try? String(contentsOf: f, encoding: .utf8))?.isEmpty == true {
+            try? FileManager.default.removeItem(at: f)
+        }
+    }
+
     /// User dropped an .lrc by hand — attach it to a track and cache it.
     static func attach(lrcText: String, cacheKey: String) {
         try? lrcText.write(to: cacheDir.appendingPathComponent(cacheKey + ".lrc"),
