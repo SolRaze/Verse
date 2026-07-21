@@ -5,6 +5,7 @@ struct VerseApp: App {
     @StateObject private var library: LibraryStore
     @StateObject private var playlists = PlaylistStore()
     @StateObject private var coordinator: Coordinator
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         Pref.registerDefaults()
@@ -19,6 +20,10 @@ struct VerseApp: App {
                 .environmentObject(library)
                 .environmentObject(playlists)
                 .environmentObject(coordinator)
+                // Foreground: start a Live Activity that iOS blocked while backgrounded.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { coordinator.player.resumeLiveActivity() }
+                }
         }
     }
 }

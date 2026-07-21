@@ -437,6 +437,13 @@ final class LibraryStore: ObservableObject {
                     misses += groupItems.count; continue
                 }
                 let detail = await MetadataScraper.albumDetail(mbid: cand.releaseMBID, wantCover: wantArt)
+                // Auto pass only trusts a release whose tracklist length matches the folder —
+                // a mismatched count means the wrong pressing (deluxe/single/comp), and stamping
+                // its numbers/album/cover would silently mistag. A Fetch-button/finder tap is
+                // explicit intent, so `force` applies regardless (the finder lets the user pick).
+                guard force || detail.tracks.count == groupItems.count else {
+                    misses += groupItems.count; continue
+                }
                 applyAlbum(candidate: cand, tracks: detail.tracks, cover: detail.cover,
                            to: groupItems, wantTags: wantTags, wantArt: wantArt, force: force)
                 hits += groupItems.count
