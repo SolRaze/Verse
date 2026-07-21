@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 /// these constants — no string drift.
 enum Pref {
     static let theme = "appearance.theme"
-    static let waveInMini = "miniPlayer.waveScrubber"
     static let carPlayTextFallback = "lyrics.carPlayTextFallback"
     static let lyricsCoverColour = "lyrics.coverColour"
     static let sponsorBlock = "playback.sponsorBlock"
@@ -87,7 +86,6 @@ extension View {
 /// The personalization hub (inbox-3): every user-tweakable knob lives here, grouped by surface.
 struct SettingsView: View {
     @AppStorage(Pref.theme) private var theme = ""
-    @AppStorage(Pref.waveInMini) private var waveInMini = false
     @AppStorage(Pref.carPlayTextFallback) private var carPlayFallback = false
     @AppStorage(Pref.lyricsCoverColour) private var lyricsCoverColour = false
     @AppStorage(Pref.sponsorBlock) private var sponsorBlock = true
@@ -230,14 +228,6 @@ struct SettingsView: View {
                     Text("Appearance")
                 } footer: {
                     Text("Tints buttons and controls everywhere — any colour. White is the stock look.")
-                }
-
-                Section {
-                    Toggle("Waveform Scrubber", isOn: $waveInMini)
-                } header: {
-                    Text("Mini Player")
-                } footer: {
-                    Text("Draws the playing track's waveform in the dock pill, drag to seek. Local files only — streams and VLC-only codecs show ticks.")
                 }
 
                 Section {

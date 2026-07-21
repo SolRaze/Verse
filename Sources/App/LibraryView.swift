@@ -586,19 +586,13 @@ struct PlaylistDetailView: View {
 /// "Not Playing") so the dock never changes shape when playback starts.
 struct MiniPlayerBar: View {
     @EnvironmentObject var coordinator: Coordinator
-    // Observed directly, not through coordinator: position ticks drive the wave scrubber.
     @ObservedObject var player: Player
-    @AppStorage(Pref.waveInMini) private var waveInMini = false
-    @State private var samples: [Float]?
 
     private var idle: Bool { coordinator.nowTitle.isEmpty }
 
     private var playing: Bool {
         coordinator.engine == .vlc ? player.isPlaying : coordinator.airPlayer.isPlaying
     }
-
-    /// The Settings toggle, and only where a wave means anything (VLC path, something playing).
-    private var showWave: Bool { waveInMini && !idle && coordinator.engine == .vlc }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -612,20 +606,9 @@ struct MiniPlayerBar: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(idle ? .secondary : .primary)
                     .lineLimit(1)
-                if showWave {
-                    // Takes the artist line's slot so the pill never changes height.
-                    WaveScrubber(samples: samples,
-                                 position: player.position,
-                                 duration: player.duration) { player.seek(to: $0) }
-                        .frame(height: 12)
-                } else if !idle, !coordinator.nowArtist.isEmpty {
+                if !idle, !coordinator.nowArtist.isEmpty {
                     Text(coordinator.nowArtist).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
-            }
-            .task(id: player.current?.url) {
-                samples = nil
-                guard waveInMini, let url = player.current?.url else { return }
-                samples = await Waveform.load(url: url)
             }
             Spacer(minLength: 0)
 
