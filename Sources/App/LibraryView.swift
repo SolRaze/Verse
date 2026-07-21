@@ -5,7 +5,9 @@ struct LibraryView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var playlists: PlaylistStore
     @EnvironmentObject var coordinator: Coordinator
-    @State private var showingImporter = false
+    // Fast import access back in Library (2026-07-21, "Import From"); Settings keeps its own.
+    @State private var showingImport = false
+    @State private var importKind: SettingsView.ImportKind = .files
     @State private var linkText = ""
     @State private var editing: LibraryItem?
     @State private var infoItem: LibraryItem?
@@ -47,7 +49,9 @@ struct LibraryView: View {
                     List { rootRows }
                 }
             }
-            .listStyle(.insetGrouped)
+            // Plain, edge-to-edge, hairline separators inset under the label — 1:1 with
+            // `Reference/music-library.png` (no grouped cards).
+            .listStyle(.plain)
             // No search here (inbox-2) — the dock's search pill owns search now.
             // Same shape as Home: big label on top.
             .navigationTitle("Library")
@@ -60,6 +64,8 @@ struct LibraryView: View {
             }
             .navigationDestination(for: CollectionKind.self) { CollectionPage(kind: $0) }
             .navigationDestination(for: ArtistRef.self) { ArtistPage(artist: $0) }
+            .navigationDestination(for: AlbumRef.self) { AlbumPage(album: $0) }
+            .navigationDestination(for: LocalPlaylist.self) { LocalPlaylistPage(playlist: $0) }
             // Player-burger deep-links. onAppear covers the tab being built cold for the link
             // (a lazy TabView child misses an onChange that fired before it existed).
             .onChange(of: coordinator.deepLink) { _, _ in consumeDeepLink() }
@@ -68,20 +74,31 @@ struct LibraryView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if editMode == .active {
                         Button("Done") { editMode = .inactive; selection = [] }
+                    } else {
+                        NavigationLink { SettingsView(embedded: true) } label: {
+                            Image(systemName: "gearshape")
+                        }
                     }
                 }
                 // One menu, not two: the import (+) and options (burger) menus are folded
                 // together under three dots.
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Grouped so the list stays short.
                     Menu {
-                        Button { showingImporter = true } label: {
-                            Label("Open from Files", systemImage: "folder")
-                        }
-                        ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
-                            Button { linkText = ""; pasteSource = src } label: {
-                                Label(src.rawValue, systemImage: src.icon)
+                        Menu {
+                            Button { importKind = .folder; showingImport = true } label: {
+                                Label("Folder", systemImage: "folder.badge.plus")
                             }
-                        }
+                            Button { importKind = .files; showingImport = true } label: {
+                                Label("Files", systemImage: "doc.badge.plus")
+                            }
+                            Divider()
+                            ForEach([LinkSource.youtube, .spotify, .soundcloud]) { src in
+                                Button { linkText = ""; pasteSource = src } label: {
+                                    Label(src.rawValue, systemImage: src.icon)
+                                }
+                            }
+                        } label: { Label("Import From", systemImage: "square.and.arrow.down") }
                         Divider()
                         Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
                         Button { newFolderName = ""; newFolderParent = [] } label: {
@@ -98,7 +115,6 @@ struct LibraryView: View {
                     .disabled(addingLink)
                 }
             }
-            .overlay { emptyState }
             .overlay { if addingLink || coordinator.busy { ProgressView().controlSize(.large) } }
             // The mini player lives on the tab shell (RootView), not here — it has to survive
             // navigation and tab switches. Only the edit-mode bar is this screen's business.
@@ -107,10 +123,14 @@ struct LibraryView: View {
                     BatchBar(selection: $selection, editMode: $editMode, moveRequest: $moveRequest)
                 }
             }
-            .fileImporter(isPresented: $showingImporter,
-                          allowedContentTypes: [.folder],
+            .fileImporter(isPresented: $showingImport,
+                          allowedContentTypes: importKind.types,
                           allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result { library.add(pickedURLs: urls) }
+                guard case .success(let urls) = result else { return }
+                switch importKind {
+                case .folder: library.add(pickedURLs: urls)
+                case .files: library.add(pickedFiles: urls)
+                }
             }
             .alert("Paste \(pasteSource?.rawValue ?? "") link", isPresented: .init(
                 get: { pasteSource != nil },
@@ -165,20 +185,23 @@ struct LibraryView: View {
 
     /// Apple-Music-style entry rows: Playlists / Artists / Albums / Songs (inbox-2). Remote
     /// playlists moved off the root into the Playlists page.
-    /// Inlaid per `reference/music-library.png` (inbox-3): no card behind these rows — big
-    /// title, accent-tinted icon, straight on the background like Apple Music's Library list.
+    /// Inlaid and compressed 1:1 to `Reference/music-library.png` (inbox-3): no card, no extra
+    /// padding — Apple Music's ~52pt row — fixed icon column so the labels line up.
     private var collectionsSection: some View {
         Section {
             ForEach(CollectionKind.allCases, id: \.self) { kind in
                 NavigationLink(value: kind) {
                     Label {
-                        Text(kind.rawValue).font(.title3)
+                        Text(kind.rawValue).font(.body)
                     } icon: {
-                        Image(systemName: kind.icon).foregroundStyle(.tint)
+                        Image(systemName: kind.icon)
+                            .font(.body)
+                            .foregroundStyle(.tint)
+                            .frame(width: 26)
                     }
-                    .padding(.vertical, 6)
                 }
-                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 3, leading: 20, bottom: 3, trailing: 20))
+                .listRowSeparatorTint(.white.opacity(0.12))
             }
         }
     }
@@ -194,18 +217,25 @@ struct LibraryView: View {
             if !components.isEmpty { path.append(FolderPath(components)) }
         case .artist(let name):
             path.append(ArtistRef(name: name))
+        case .album(let name):
+            path.append(AlbumRef(name: name))
         }
     }
 
-    /// Folders + items directly inside `path`, rendered as a section. Used at the root.
+    /// User-created folders + loose items at `path`. Imported source trees are NOT listed —
+    /// metadata (the collections above) organizes the library — unless Settings › Library ›
+    /// Show File Locations turns the disk tree back on.
     @ViewBuilder private func folderContents(path: [String]) -> some View {
         let child = library.children(of: path)
-        if !child.folders.isEmpty || !child.items.isEmpty {
+        let folders = UserDefaults.standard.bool(forKey: Pref.showFilePaths)
+            ? child.folders : library.visibleFolders(at: path)
+        if !folders.isEmpty || !child.items.isEmpty {
             Section("Library") {
-                ForEach(child.folders, id: \.self) { name in
+                ForEach(folders, id: \.self) { name in
                     NavigationLink(value: FolderPath(path + [name])) {
                         FolderRow(name: name, count: library.descendants(of: path + [name]).count)
                     }
+                    .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
                     .swipeActions {
                         Button(role: .destructive) { library.removeFolder(path + [name]) } label: {
                             Label("Delete", systemImage: "trash")
@@ -213,7 +243,10 @@ struct LibraryView: View {
                     }
                     .contextMenu { folderMenu(path + [name]) }
                 }
-                ForEach(child.items) { item in itemButton(item, queue: child.items) }
+                ForEach(child.items) { item in
+                    itemButton(item, queue: child.items)
+                        .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
+                }
             }
         }
     }
@@ -242,16 +275,7 @@ struct LibraryView: View {
     }
 
     @ViewBuilder private func itemMenu(_ item: LibraryItem, queue: [LibraryItem]) -> some View {
-        ItemContextMenu(item: item, queue: queue, editing: $editing,
-                        infoItem: $infoItem, moveRequest: $moveRequest)
-    }
-
-    @ViewBuilder private var emptyState: some View {
-        if library.items.isEmpty && playlists.playlists.isEmpty {
-            ContentUnavailableView(
-                "Nothing here yet", systemImage: "folder",
-                description: Text("Import a folder with the button above, or paste a YouTube, Spotify, or SoundCloud link."))
-        }
+        ItemContextMenu(item: item, queue: queue, infoItem: $infoItem)
     }
 
     private func addLink() {
@@ -296,6 +320,7 @@ struct FolderView: View {
     let path: [String]
 
     @ViewBuilder private func rows(_ child: (folders: [String], items: [LibraryItem])) -> some View {
+        // `child.folders` here is pre-filtered to user-created folders by the caller.
         ForEach(child.folders, id: \.self) { name in
             NavigationLink(value: FolderPath(path + [name])) {
                 FolderRow(name: name, count: library.descendants(of: path + [name]).count)
@@ -322,14 +347,17 @@ struct FolderView: View {
                     Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
                 }
                 .contextMenu {
-                    ItemContextMenu(item: item, queue: child.items, editing: $editing,
-                                    infoItem: $infoItem, moveRequest: $moveRequest)
+                    ItemContextMenu(item: item, queue: child.items, infoItem: $infoItem)
                 }
         }
     }
 
     var body: some View {
-        let child = library.children(of: path)
+        // User-created subfolders only, unless Show File Locations is on (Settings › Library).
+        let all = library.children(of: path)
+        let child = (folders: UserDefaults.standard.bool(forKey: Pref.showFilePaths)
+                        ? all.folders : library.visibleFolders(at: path),
+                     items: all.items)
         // Plain List with NO editMode environment while browsing — both a selection binding and
         // an editMode binding install pan gestures that fight the interactive swipe-back
         // (it took two swipes). Only wire them up once the user actually enters Select.
@@ -404,13 +432,13 @@ struct FolderRow: View {
     let count: Int
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Image(systemName: "folder.fill")
-                .font(.title2).foregroundStyle(.tint)
-                .frame(width: 48, height: 48)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).lineLimit(1)
+                .font(.subheadline).foregroundStyle(.tint)
+                .frame(width: 28, height: 28)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(name).font(.subheadline).lineLimit(1)
                 Text(itemCountText(count)).font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -426,13 +454,13 @@ struct ItemRow: View {
     private var isNowPlaying: Bool { coordinator.nowPlayingItemID == item.id }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             thumbnail
-                .frame(width: 48, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(width: 28, height: 28)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).lineLimit(1)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(item.title).font(.subheadline).lineLimit(1)
                     .foregroundStyle(isNowPlaying ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 if !item.artist.isEmpty {
                     Text(item.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -645,15 +673,14 @@ struct MiniPlayerBar: View {
 
 // MARK: -
 
-/// Shared context menu for an item — identical on the root and inside folders.
+/// Shared context menu for a track, identical everywhere (2026-07-21 rework: Edit / Move /
+/// Fetch Metadata are gone — playlists and lyrics moved in).
 struct ItemContextMenu: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var coordinator: Coordinator
     let item: LibraryItem
     let queue: [LibraryItem]
-    @Binding var editing: LibraryItem?
     @Binding var infoItem: LibraryItem?
-    @Binding var moveRequest: MoveRequest?
 
     var body: some View {
         Button { coordinator.play(item, in: queue) } label: { Label("Play", systemImage: "play.fill") }
@@ -661,20 +688,23 @@ struct ItemContextMenu: View {
             Button { coordinator.playNext(item) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
             Button { coordinator.playLast(item) } label: { Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") }
         } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
-        Button { editing = item } label: { Label("Edit", systemImage: "pencil") }
+        Menu {
+            ForEach(library.localPlaylists) { pl in
+                Button(pl.name) { library.add(item, to: pl) }
+            }
+            if !library.localPlaylists.isEmpty { Divider() }
+            Button { library.newPlaylist(with: item) } label: {
+                Label("New Playlist", systemImage: "plus")
+            }
+        } label: { Label("Add to Playlist", systemImage: "music.note.list") }
         if case .file = item.source {
-            Button { Task { await library.fetchMetadata(item) } } label: {
-                Label("Fetch Metadata", systemImage: "wand.and.stars")
+            Button { Task { await library.fetchLyrics(item) } } label: {
+                Label("Fetch Lyrics", systemImage: "quote.bubble")
             }
         }
-        Button {
-            moveRequest = MoveRequest(title: "Move \(item.title)", excluding: []) {
-                library.move(item, to: $0)
-            }
-        } label: { Label("Move to…", systemImage: "folder") }
         Button { infoItem = item } label: { Label("Info", systemImage: "info.circle") }
-        if let url = library.resolveURL(item) {
-            ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
+        if let urls = library.shareItems(item) {
+            ShareLink(items: urls) { Label("Share", systemImage: "square.and.arrow.up") }
         }
         Button(role: .destructive) { library.remove(item) } label: { Label("Delete", systemImage: "trash") }
     }
@@ -769,7 +799,7 @@ struct MoveRequest: Identifiable {
 
 /// Pick a destination folder, or make a new one on the spot. Works for a single item, a batch,
 /// or a folder — the caller supplies what to do with the picked path.
-private struct MoveSheet: View {
+struct MoveSheet: View {      // shared with the collection pages' hold menus
     @EnvironmentObject var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State private var newFolderName = ""
@@ -858,7 +888,7 @@ struct InfoSheet: View {      // shared with the player's burger menu
     }
 }
 
-private struct EditItemSheet: View {
+struct EditItemSheet: View {  // shared with the collection pages' hold menus
     @EnvironmentObject var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State var item: LibraryItem

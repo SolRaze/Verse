@@ -13,6 +13,15 @@ struct LibraryItem: Codable, Identifiable, Hashable {
     var source: Source
     var isVideo: Bool
 
+    /// Embedded album tag, read on import (auto metadata). Empty when the file carried none;
+    /// the Albums collection then falls back to the containing folder name. Defaulted so older
+    /// libraries decode cleanly.
+    var album: String = ""
+
+    /// How this track groups under Albums: its album tag, else the folder it sits in. Empty
+    /// only for a loose, tagless file.
+    var albumKey: String { album.isEmpty ? (folders.last ?? "") : album }
+
     /// Folder path components relative to the imported root, e.g. ["Rock", "Album1"]. Empty for
     /// loose items and YouTube adds. This is the whole filesystem-style library — folders are the
     /// organization, subfolders are the playlists.
@@ -38,6 +47,34 @@ struct LibraryItem: Codable, Identifiable, Hashable {
             ?? (watchURL.host?.contains("youtu.be") == true ? watchURL.lastPathComponent : nil)
         return id.flatMap { URL(string: "https://i.ytimg.com/vi/\($0)/mqdefault.jpg") }
     }
+}
+
+/// Tags saved as `<file>.verse.json` beside the track (inbox-3 in-place metadata): the user's
+/// edits live with the files, and a re-import reads them back instead of re-parsing filenames.
+struct SidecarTags: Codable {
+    var title: String
+    var artist: String
+    var liked: Bool?
+    // Full per-track state rides the sidecar (all optional — older sidecars decode fine).
+    // This is the rebuild insurance: app data wiped → re-import the folder → tags, album,
+    // likes AND play history restore from beside the files. No copy into app storage needed.
+    var album: String?
+    var playCount: Int?
+    var lastPlayed: Date?
+
+    static func url(besides mediaURL: URL) -> URL {
+        mediaURL.deletingPathExtension()
+            .appendingPathExtension("verse").appendingPathExtension("json")
+    }
+}
+
+/// User-made playlist (distinct from scraped RemotePlaylists): ordered item ids, persisted
+/// with the library. Tracks are references — deleting a library item just drops dead ids on
+/// read.
+struct LocalPlaylist: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name: String
+    var itemIDs: [UUID] = []
 }
 
 /// ponytail: whole library is one Codable array in one JSON file. Personal library, fits in
@@ -68,9 +105,17 @@ final class LibraryStore: ObservableObject {
     @Published var sortField: SortField = .name { didSet { persistSort() } }
     @Published var sortAscending = true { didSet { persistSort() } }
 
+    /// Imported root-folder name → security-scoped bookmark of that folder. A file's own
+    /// bookmark never covers its siblings, so writing sidecars beside a track needs the root's
+    /// scope. Captured at import; folders imported before this existed need one re-import.
+    private var rootBookmarks: [String: Data] = [:]
+
     private var dir: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
     private var file: URL { dir.appendingPathComponent("library.json") }
     private var foldersFile: URL { dir.appendingPathComponent("folders.json") }
+    private var rootsFile: URL { dir.appendingPathComponent("roots.json") }
+    private var localPlaylistsFile: URL { dir.appendingPathComponent("playlists-local.json") }
+    @Published private(set) var localPlaylists: [LocalPlaylist] = []
 
     init() {
         if let data = try? Data(contentsOf: file),
@@ -81,9 +126,22 @@ final class LibraryStore: ObservableObject {
            let saved = try? JSONDecoder().decode([[String]].self, from: data) {
             customFolders = saved
         }
+        if let data = try? Data(contentsOf: rootsFile),
+           let saved = try? JSONDecoder().decode([String: Data].self, from: data) {
+            rootBookmarks = saved
+        }
+        if let data = try? Data(contentsOf: localPlaylistsFile),
+           let saved = try? JSONDecoder().decode([LocalPlaylist].self, from: data) {
+            localPlaylists = saved
+        }
         if let raw = UserDefaults.standard.string(forKey: "sortField"),
            let f = SortField(rawValue: raw) { sortField = f }
         sortAscending = UserDefaults.standard.object(forKey: "sortAsc") as? Bool ?? true
+        if let bm = try? Data(contentsOf: dir.appendingPathComponent("sidecar-dir.bookmark")) {
+            var stale = false
+            customSidecarFolderName = (try? URL(resolvingBookmarkData: bm,
+                                                bookmarkDataIsStale: &stale))?.lastPathComponent
+        }
     }
 
     private func persistSort() {
@@ -94,6 +152,48 @@ final class LibraryStore: ObservableObject {
     private func save() {
         try? JSONEncoder().encode(items).write(to: file, options: .atomic)
         try? JSONEncoder().encode(customFolders).write(to: foldersFile, options: .atomic)
+        try? JSONEncoder().encode(rootBookmarks).write(to: rootsFile, options: .atomic)
+        try? JSONEncoder().encode(localPlaylists).write(to: localPlaylistsFile, options: .atomic)
+    }
+
+    // MARK: - Local playlists
+
+    func newPlaylist(with item: LibraryItem? = nil) {
+        var pl = LocalPlaylist(name: "Playlist \(localPlaylists.count + 1)")
+        if let item { pl.itemIDs = [item.id] }
+        localPlaylists.append(pl)
+        save()
+    }
+
+    func add(_ item: LibraryItem, to playlist: LocalPlaylist) {
+        guard let i = localPlaylists.firstIndex(where: { $0.id == playlist.id }),
+              !localPlaylists[i].itemIDs.contains(item.id) else { return }
+        localPlaylists[i].itemIDs.append(item.id)
+        save()
+    }
+
+    func remove(_ item: LibraryItem, from playlist: LocalPlaylist) {
+        guard let i = localPlaylists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        localPlaylists[i].itemIDs.removeAll { $0 == item.id }
+        save()
+    }
+
+    func renamePlaylist(_ playlist: LocalPlaylist, to name: String) {
+        let clean = name.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty,
+              let i = localPlaylists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        localPlaylists[i].name = clean
+        save()
+    }
+
+    func removePlaylist(_ playlist: LocalPlaylist) {
+        localPlaylists.removeAll { $0.id == playlist.id }
+        save()
+    }
+
+    /// Resolve a playlist's ids to items, keeping order and skipping deleted tracks.
+    func tracks(of playlist: LocalPlaylist) -> [LibraryItem] {
+        playlist.itemIDs.compactMap { id in items.first { $0.id == id } }
     }
 
     // MARK: - Organizing
@@ -217,11 +317,296 @@ final class LibraryStore: ObservableObject {
             let scoped = root.startAccessingSecurityScopedResource()
             defer { if scoped { root.stopAccessingSecurityScopedResource() } }
             let isDir = (try? root.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            if isDir { importFolder(root) }
+            if isDir {
+                // Keep write access to the tree — sidecar tags/lyrics land beside the files.
+                if let bm = try? root.bookmarkData(options: .minimalBookmark) {
+                    rootBookmarks[root.lastPathComponent] = bm
+                }
+                importFolder(root)
+            }
         }
         save()
-        Task { await backfillArtwork() }
+        Task { await backfillMetadata(); await backfillArtwork(); await onlinePass() }
     }
+
+    /// Import individual picked files as LOOSE items (folders: []). Unlike folder import this
+    /// stores NO root-folder bookmark — each file keeps only its own minimal bookmark, which
+    /// covers the file but not its directory. That's the point: import files, never associate
+    /// the whole folder. Sibling .lrc / .verse.json are read while the picker scope is held,
+    /// since a file's own scope won't reach them later.
+    func add(pickedFiles urls: [URL]) {
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard Self.mediaExtensions.contains(url.pathExtension.lowercased()),
+                  let item = importFile(url, folders: []) else { continue }
+            let sidecar = url.deletingPathExtension().appendingPathExtension("lrc")
+            if let lrc = try? String(contentsOf: sidecar, encoding: .utf8) {
+                LyricsResolver.attach(lrcText: lrc, cacheKey: item.id.uuidString)
+            }
+        }
+        save()
+        Task { await backfillMetadata(); await backfillArtwork(); await onlinePass() }
+    }
+
+    /// Auto metadata on import: read embedded title/artist/album tags and associate each track
+    /// with its artist and album. Only fills what import left blank — a sidecar or a real
+    /// filename parse (`Artist - Title`) already wins, and user edits are never touched.
+    /// ponytail: opens the asset a second time (backfillArtwork opens it too); personal library,
+    /// not worth threading one asset through both passes.
+    private func backfillMetadata() async {
+        for item in items {
+            guard case .file = item.source,
+                  item.artist.isEmpty || item.album.isEmpty,   // nothing to do if both known
+                  let url = resolveURL(item) else { continue }
+            let scoped = url.startAccessingSecurityScopedResource()
+            let meta = try? await AVURLAsset(url: url).load(.commonMetadata)
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            guard let meta else { continue }
+
+            func tag(_ id: AVMetadataIdentifier) async -> String? {
+                try? await AVMetadataItem.metadataItems(from: meta, filteredByIdentifier: id)
+                    .first?.load(.stringValue)
+            }
+            let title = await tag(.commonIdentifierTitle)
+            let artist = await tag(.commonIdentifierArtist)
+            let album = await tag(.commonIdentifierAlbumName)
+
+            // Re-find by id: an await could have let another import mutate `items`.
+            guard let i = items.firstIndex(where: { $0.id == item.id }) else { continue }
+            let before = items[i]
+            if items[i].artist.isEmpty, let a = artist, !a.isEmpty { items[i].artist = a }
+            if items[i].album.isEmpty, let a = album, !a.isEmpty { items[i].album = a }
+            // Title only when the filename parse gave nothing better (artist was empty too).
+            if item.artist.isEmpty, let t = title, !t.isEmpty { items[i].title = t }
+            // Filled something → persist it beside the file so a rebuild re-learns it free.
+            if items[i] != before { writeTagsSidecar(items[i]) }
+        }
+        save()
+    }
+
+    /// Online enrichment: MusicBrainz album fill + Cover Art Archive hi-res cover (opt-in via
+    /// Settings › Metadata), then LRCLIB lyrics into the cache and the `.lrc` sidecar (same
+    /// no-toggle behaviour as play-time lyric lookup; the negative cache makes repeats free).
+    /// Serial on purpose — free community services, ~1 req/s politeness lives in the clients.
+    /// ponytail: whole-library loop with no resume; fine for a personal library.
+    private func onlinePass() async {
+        await onlineMetadataPass(force: false)
+        await lyricsPass(force: false)
+    }
+
+    enum OnlineMode { case both, tags, art }
+
+    /// MusicBrainz album fill + CAA hi-res cover. `force` = the user tapped a fetch button:
+    /// ignores the Online Metadata toggle and clears negative artwork markers so every
+    /// coverless track genuinely retries. `mode` narrows the pass (Settings has separate
+    /// Fetch Metadata / Fetch Artwork buttons so a failure is attributable).
+    private func onlineMetadataPass(force: Bool, mode: OnlineMode = .both) async {
+        guard force || UserDefaults.standard.bool(forKey: Pref.onlineMetadata) else { return }
+        let wantTags = mode != .art, wantArt = mode != .tags
+        let label = mode == .tags ? "Metadata" : mode == .art ? "Artwork" : "Covers & metadata"
+        let total = items.count
+        var hits = 0, misses = 0, skipped = 0
+        for (n, item) in items.enumerated() {
+            guard case .file = item.source, let url = resolveURL(item) else { continue }
+            var current = items.first { $0.id == item.id } ?? item
+            rescanStatus = "\(label) \(n + 1)/\(total) · \(current.title)"
+            if force, wantArt, Artwork.image(for: item.id.uuidString) == nil {
+                Artwork.invalidate(key: item.id.uuidString)
+            }
+            let needTags = wantTags && current.album.isEmpty
+            // Forced art fetch upgrades EVERY cover (CAA 500px beats a 200px embedded thumb),
+            // not just missing ones; the auto pass still only fills gaps.
+            let needArt = wantArt && (force || Artwork.image(for: item.id.uuidString) == nil)
+            guard needTags || needArt else { skipped += 1; continue }
+            guard let found = await MetadataScraper.lookup(
+                      title: current.title, artist: current.artist,
+                      filename: url.deletingPathExtension().lastPathComponent) else {
+                misses += 1
+                continue
+            }
+            hits += 1
+            if wantTags {
+                if current.artist.isEmpty, !found.artist.isEmpty { current.artist = found.artist }
+                if current.album.isEmpty, let a = found.album, !a.isEmpty { current.album = a }
+            }
+            if needArt, let cover = found.coverImage {
+                Artwork.invalidate(key: item.id.uuidString)
+                Artwork.store(image: cover, key: item.id.uuidString)
+                artworkVersion += 1
+            }
+            update(current)
+        }
+        lastFetchSummary = "\(label): \(hits) found, \(misses) not matched"
+            + (skipped > 0 ? ", \(skipped) already had it" : "")
+            + (hits + misses == 0 ? " — nothing needed a lookup" : "")
+    }
+
+    /// LRCLIB lyrics into the cache + `.lrc` sidecars. `force` clears negative markers first
+    /// so "nothing found" tracks retry.
+    private func lyricsPass(force: Bool) async {
+        let total = items.count
+        for (n, item) in items.enumerated() {
+            guard case .file = item.source, let url = resolveURL(item) else { continue }
+            rescanStatus = "Lyrics \(n + 1)/\(total) · \(item.title)"
+            if force { LyricsResolver.invalidateNegative(cacheKey: item.id.uuidString) }
+            let scoped = url.startAccessingSecurityScopedResource()
+            _ = await LyricsResolver.resolve(mediaURL: url, title: item.title,
+                                             artist: item.artist, duration: nil,
+                                             cacheKey: item.id.uuidString)
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            exportLyricsSidecar(item)
+        }
+    }
+
+    @Published private(set) var rescanning = false
+    /// Live progress line for Settings ("Covers 3/40 · Track"), "" when idle.
+    @Published private(set) var rescanStatus = ""
+    /// Sticks around after a run so "did it do anything?" has an answer.
+    @Published private(set) var lastFetchSummary = ""
+
+    /// Settings "Rescan Library": embedded tags → embedded art → online metadata + hi-res
+    /// covers (opt-in) → LRCLIB lyrics. Everything persists to the sidecars as it lands.
+    func rescanLibrary() async {
+        guard !rescanning else { return }
+        rescanning = true
+        defer { rescanning = false; rescanStatus = "" }
+        rescanStatus = "Reading embedded tags…"
+        await backfillMetadata()
+        rescanStatus = "Extracting embedded covers…"
+        await backfillArtwork()
+        await onlinePass()
+    }
+
+    /// Settings "Fetch Metadata": explicit tap = consent, toggle bypassed. Tags only.
+    func fetchOnlineTags() async {
+        guard !rescanning else { return }
+        rescanning = true
+        defer { rescanning = false; rescanStatus = "" }
+        await onlineMetadataPass(force: true, mode: .tags)
+    }
+
+    /// Settings "Fetch Artwork": hi-res covers only — separated so failures are attributable.
+    func fetchOnlineArtwork() async {
+        guard !rescanning else { return }
+        rescanning = true
+        defer { rescanning = false; rescanStatus = "" }
+        await onlineMetadataPass(force: true, mode: .art)
+    }
+
+    /// Settings "Fetch Lyrics": LRCLIB for every track, negative markers cleared.
+    func fetchAllLyrics() async {
+        guard !rescanning else { return }
+        rescanning = true
+        defer { rescanning = false; rescanStatus = "" }
+        await lyricsPass(force: true)
+    }
+
+    /// Hold-menu "Fetch Lyrics": one track, negative marker cleared so it genuinely retries.
+    func fetchLyrics(_ item: LibraryItem) async {
+        guard case .file = item.source, let url = resolveURL(item) else { return }
+        LyricsResolver.invalidateNegative(cacheKey: item.id.uuidString)
+        let scoped = url.startAccessingSecurityScopedResource()
+        _ = await LyricsResolver.resolve(mediaURL: url, title: item.title, artist: item.artist,
+                                         duration: nil, cacheKey: item.id.uuidString)
+        if scoped { url.stopAccessingSecurityScopedResource() }
+        exportLyricsSidecar(item)
+    }
+
+    /// Share payload: the media file plus freshly written tag + lyric files — the receiver
+    /// gets everything the app knows about the track.
+    /// ponytail: three files through the share sheet, not tags muxed into the audio —
+    /// AVFoundation can't rewrite tags for arbitrary containers.
+    func shareItems(_ item: LibraryItem) -> [URL]? {
+        guard let media = resolveURL(item) else { return nil }
+        var urls = [media]
+        let tmp = FileManager.default.temporaryDirectory
+        let base = media.deletingPathExtension().lastPathComponent
+        let tags = SidecarTags(title: item.title, artist: item.artist, liked: item.liked,
+                               album: item.album.isEmpty ? nil : item.album,
+                               playCount: item.playCount > 0 ? item.playCount : nil,
+                               lastPlayed: item.lastPlayed)
+        let tagURL = tmp.appendingPathComponent(base + ".verse.json")
+        if let data = try? JSONEncoder().encode(tags), (try? data.write(to: tagURL)) != nil {
+            urls.append(tagURL)
+        }
+        if let raw = LyricsResolver.cachedRaw(for: item.id.uuidString), !raw.isEmpty {
+            let lrcURL = tmp.appendingPathComponent(base + ".lrc")
+            if (try? raw.write(to: lrcURL, atomically: true, encoding: .utf8)) != nil {
+                urls.append(lrcURL)
+            }
+        }
+        return urls
+    }
+
+    // MARK: - Sidecar location (Settings › Metadata Location)
+
+    private var sidecarDirFile: URL { dir.appendingPathComponent("sidecar-dir.bookmark") }
+    /// Display name of the user-picked sidecar folder, nil = beside the music files.
+    @Published private(set) var customSidecarFolderName: String?
+
+    /// nil resets to "beside the files".
+    func setCustomSidecarFolder(_ url: URL?) {
+        guard let url else {
+            try? FileManager.default.removeItem(at: sidecarDirFile)
+            customSidecarFolderName = nil
+            return
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        if let bm = try? url.bookmarkData(options: .minimalBookmark) {
+            try? bm.write(to: sidecarDirFile)
+            customSidecarFolderName = url.lastPathComponent
+        }
+        if scoped { url.stopAccessingSecurityScopedResource() }
+    }
+
+    /// Resolve the custom sidecar dir with scope started; caller releases. nil = beside files.
+    private func customSidecarDir() -> (url: URL, release: () -> Void)? {
+        guard let bm = try? Data(contentsOf: sidecarDirFile) else { return nil }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: bm, bookmarkDataIsStale: &stale),
+              url.startAccessingSecurityScopedResource() else { return nil }
+        return (url, { url.stopAccessingSecurityScopedResource() })
+    }
+
+    /// Where a sidecar for `media` lives: user-picked folder (flat, filename-keyed) or beside
+    /// the file. Returns the base URL (no extension) + a scope release.
+    private func sidecarBase(for media: URL) -> (base: URL, release: () -> Void)? {
+        if let (dir, release) = customSidecarDir() {
+            return (dir.appendingPathComponent(media.deletingPathExtension().lastPathComponent),
+                    release)
+        }
+        return nil  // caller falls back to beside-the-file with its own scope
+    }
+
+    /// One-file library backup (items + folders + playlists) for the share sheet — covers
+    /// YouTube entries, which have no media files to carry sidecars.
+    struct Backup: Codable {
+        var items: [LibraryItem]
+        var customFolders: [[String]]
+        var localPlaylists: [LocalPlaylist]
+    }
+
+    func backupURL() -> URL? {
+        let backup = Backup(items: items, customFolders: customFolders,
+                            localPlaylists: localPlaylists)
+        guard let data = try? JSONEncoder().encode(backup) else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("verse-backup.json")
+        guard (try? data.write(to: url, options: .atomic)) != nil else { return nil }
+        return url
+    }
+
+    /// Settings: remove one imported root — its items, hidden folder subtree, and bookmark.
+    /// Sidecars beside the files stay, so re-importing later restores everything.
+    func removeImportedRoot(_ name: String) {
+        removeFolder([name])
+        rootBookmarks.removeValue(forKey: name)
+        save()
+    }
+
+    /// Imported root-folder names, shown in Settings › Library.
+    var importedRoots: [String] { rootBookmarks.keys.sorted() }
 
     /// Extract embedded cover art for any file item that hasn't got a cached thumbnail yet.
     /// Runs off the import path via the stored bookmark, so it doesn't need the picker's scope.
@@ -238,7 +623,14 @@ final class LibraryStore: ObservableObject {
 
     private func importFolder(_ root: URL) {
         let rootName = root.lastPathComponent
-        // Everything under this root replaces a prior import of the same top folder.
+        // Everything under this root replaces a prior import of the same top folder — but a
+        // re-import is not destructive (inbox-3): files matched by folder path + filename keep
+        // their identity, so play counts, likes, and the id-keyed lyric/artwork caches survive.
+        var previous: [String: LibraryItem] = [:]
+        for item in items where item.folders.first == rootName {
+            guard case .file = item.source, let url = resolveURL(item) else { continue }
+            previous[(item.folders + [url.lastPathComponent]).joined(separator: "/")] = item
+        }
         items.removeAll { $0.folders.first == rootName }
 
         let files = FileManager.default
@@ -247,7 +639,8 @@ final class LibraryStore: ObservableObject {
         for url in files where Self.mediaExtensions.contains(url.pathExtension.lowercased()) {
             // Path from root's parent down to (but not including) the file = folder chain.
             let rel = relativeComponents(of: url, under: root)
-            guard let item = importFile(url, folders: [rootName] + rel.dropLast()) else { continue }
+            guard let item = importFile(url, folders: [rootName] + rel.dropLast(),
+                                        previous: previous) else { continue }
             let sidecar = url.deletingPathExtension().appendingPathExtension("lrc")
             if let lrc = try? String(contentsOf: sidecar, encoding: .utf8) {
                 LyricsResolver.attach(lrcText: lrc, cacheKey: item.id.uuidString)
@@ -263,7 +656,8 @@ final class LibraryStore: ObservableObject {
     }
 
     @discardableResult
-    private func importFile(_ url: URL, folders: [String]) -> LibraryItem? {
+    private func importFile(_ url: URL, folders: [String],
+                            previous: [String: LibraryItem] = [:]) -> LibraryItem? {
         guard let bookmark = try? url.bookmarkData(options: .minimalBookmark) else { return nil }
         let base = url.deletingPathExtension().lastPathComponent
         let parts = base.components(separatedBy: " - ")
@@ -271,11 +665,46 @@ final class LibraryStore: ObservableObject {
             ? (parts[0], parts.dropFirst().joined(separator: " - "))
             : ("", base)
 
-        let item = LibraryItem(
+        var item = LibraryItem(
             title: title, artist: artist,
             source: .file(bookmark: bookmark),
             isVideo: Self.videoExtensions.contains(url.pathExtension.lowercased()),
             folders: folders, dateAdded: Date())
+
+        // Same file as before (re-import): keep its identity and history; in-app edits beat
+        // the filename re-parse.
+        if let old = previous[(folders + [url.lastPathComponent]).joined(separator: "/")] {
+            item.id = old.id
+            item.dateAdded = old.dateAdded
+            item.playCount = old.playCount
+            item.lastPlayed = old.lastPlayed
+            item.liked = old.liked
+            item.title = old.title
+            item.artist = old.artist
+        }
+
+        // Sidecar tags beat everything — they're the on-disk source of truth. Beside the
+        // file first, then the user-picked sidecar folder (Settings › Metadata Location).
+        var sidecarData = try? Data(contentsOf: SidecarTags.url(besides: url))
+        if sidecarData == nil, let (base, release) = sidecarBase(for: url) {
+            sidecarData = try? Data(contentsOf:
+                base.appendingPathExtension("verse").appendingPathExtension("json"))
+            release()
+        }
+        if let data = sidecarData,
+           let tags = try? JSONDecoder().decode(SidecarTags.self, from: data) {
+            item.title = tags.title
+            item.artist = tags.artist
+            if let liked = tags.liked { item.liked = liked }
+            if let album = tags.album { item.album = album }
+            // No in-app history for this file (fresh install / wiped data): adopt the
+            // sidecar's play history — the rebuild-restore path.
+            if item.playCount == 0, let plays = tags.playCount {
+                item.playCount = plays
+                item.lastPlayed = tags.lastPlayed
+            }
+        }
+
         items.append(item)
         return item
     }
@@ -307,7 +736,9 @@ final class LibraryStore: ObservableObject {
         let by: (LibraryItem, LibraryItem) -> Bool
         switch sortField {
         case .name:
-            by = { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            // localizedStandardCompare = Finder-style numeric ordering, so "2 - x" precedes
+            // "10 - x" — track lists play sequentially.
+            by = { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         case .artist:
             by = { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
         case .dateAdded:
@@ -335,7 +766,76 @@ final class LibraryStore: ObservableObject {
     }
 
     func update(_ item: LibraryItem) {
-        if let i = items.firstIndex(where: { $0.id == item.id }) { items[i] = item; save() }
+        guard let i = items.firstIndex(where: { $0.id == item.id }) else { return }
+        let old = items[i]
+        items[i] = item
+        save()
+        // In-place metadata (inbox-3): user-visible edits land beside the file too. Bookmark
+        // refreshes route through here as well — don't touch the disk for those.
+        if old.title != item.title || old.artist != item.artist || old.liked != item.liked
+            || old.album != item.album {
+            writeTagsSidecar(item)
+        }
+    }
+
+    // MARK: - Sidecars (inbox-3 in-place metadata)
+
+    /// Start write scope on the imported root that holds `item`, and hand back the resolved
+    /// media URL. Falls back to the file's own scope (tag reads work; sibling writes may not —
+    /// pre-sidecar imports have no root bookmark until re-imported once).
+    private func sidecarScope(for item: LibraryItem) -> (media: URL, release: () -> Void)? {
+        guard case .file = item.source, let media = resolveURL(item) else { return nil }
+        if let name = item.folders.first, let bm = rootBookmarks[name] {
+            var stale = false
+            if let root = try? URL(resolvingBookmarkData: bm, bookmarkDataIsStale: &stale),
+               root.startAccessingSecurityScopedResource() {
+                return (media, { root.stopAccessingSecurityScopedResource() })
+            }
+        }
+        let scoped = media.startAccessingSecurityScopedResource()
+        return (media, { if scoped { media.stopAccessingSecurityScopedResource() } })
+    }
+
+    // ponytail: file-imported loose items (add(pickedFiles:)) hold only the file's own bookmark,
+    // which grants no directory scope — the atomic sidecar write here typically no-ops (try?), and
+    // their metadata stays in-app (library.json). Upgrade path: fall back to folder import.
+    private func writeTagsSidecar(_ item: LibraryItem) {
+        let tags = SidecarTags(title: item.title, artist: item.artist, liked: item.liked,
+                               album: item.album.isEmpty ? nil : item.album,
+                               playCount: item.playCount > 0 ? item.playCount : nil,
+                               lastPlayed: item.lastPlayed)
+        // User-picked sidecar folder wins (Settings › Metadata Location).
+        if let media = resolveURL(item), let (base, release) = sidecarBase(for: media) {
+            defer { release() }
+            try? JSONEncoder().encode(tags).write(
+                to: base.appendingPathExtension("verse").appendingPathExtension("json"),
+                options: .atomic)
+            return
+        }
+        guard let (media, release) = sidecarScope(for: item) else { return }
+        defer { release() }
+        try? JSONEncoder().encode(tags).write(to: SidecarTags.url(besides: media), options: .atomic)
+    }
+
+    /// Copy resolved lyrics (the id-keyed cache) to `<file>.lrc` beside the track, once.
+    /// Called after the resolver chain lands — LRCLIB fetches end up on disk with the music.
+    // ponytail: as with writeTagsSidecar, file-imported loose items lack directory scope, so this
+    // write may no-op — their lyrics stay in the id-keyed cache. Upgrade path: folder import.
+    func exportLyricsSidecar(_ item: LibraryItem) {
+        guard let raw = LyricsResolver.cachedRaw(for: item.id.uuidString), !raw.isEmpty else { return }
+        if let media = resolveURL(item), let (base, release) = sidecarBase(for: media) {
+            defer { release() }
+            let url = base.appendingPathExtension("lrc")
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try? raw.write(to: url, atomically: true, encoding: .utf8)
+            }
+            return
+        }
+        guard let (media, release) = sidecarScope(for: item) else { return }
+        defer { release() }
+        let url = media.deletingPathExtension().appendingPathExtension("lrc")
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        try? raw.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// Count a play. Silently ignores items that aren't in the library — remote playlist entries
@@ -345,18 +845,30 @@ final class LibraryStore: ObservableObject {
         items[i].playCount += 1
         items[i].lastPlayed = Date()
         save()
+        // Play history rides the sidecar too, so a rebuild/wipe can't lose it (restored on
+        // re-import). One tiny json per track start — cheap.
+        writeTagsSidecar(items[i])
     }
 
-    /// Folders that directly hold tracks — this library's notion of an album — ranked by total
-    /// plays. Parent folders are excluded so a play isn't counted twice up the tree.
+    /// Albums (grouped by `albumKey` — album tag, folder name as fallback) ranked by total
+    /// plays. Metadata-first: no disk paths reach the UI.
     /// ponytail: rescans on every call; it's a personal library and Home renders on appear.
-    func mostPlayedAlbums(limit: Int = 6) -> [(path: [String], plays: Int)] {
-        allFolders()
-            .map { ($0, children(of: $0).items.reduce(0) { $0 + $1.playCount }) }
+    func mostPlayedAlbums(limit: Int = 6) -> [(name: String, plays: Int)] {
+        Dictionary(grouping: items.filter { !$0.albumKey.isEmpty }, by: \.albumKey)
+            .map { ($0.key, $0.value.reduce(0) { $0 + $1.playCount }) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
             .prefix(limit)
-            .map { (path: $0.0, plays: $0.1) }
+            .map { (name: $0.0, plays: $0.1) }
+    }
+
+    /// Folders to SHOW while browsing: user-created only. Imported source trees stay internal
+    /// (identity, sidecar scope, album fallback) — metadata organizes the library; disk layout
+    /// and filenames never display (2026-07-21 user request).
+    func visibleFolders(at path: [String]) -> [String] {
+        Set(customFolders.filter { $0.count > path.count && $0.starts(with: path) }
+            .map { $0[path.count] })
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     func mostPlayedTracks(limit: Int = 6) -> [LibraryItem] {
@@ -371,7 +883,6 @@ final class LibraryStore: ObservableObject {
     func fetchMetadata(_ item: LibraryItem) async {
         guard case .file = item.source, let url = resolveURL(item) else { return }
         let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
         var updated = item
         let asset = AVURLAsset(url: url)
@@ -380,12 +891,40 @@ final class LibraryStore: ObservableObject {
                 from: meta, filteredByIdentifier: .commonIdentifierTitle).first?.load(.stringValue)
             let artist = try? await AVMetadataItem.metadataItems(
                 from: meta, filteredByIdentifier: .commonIdentifierArtist).first?.load(.stringValue)
+            let album = try? await AVMetadataItem.metadataItems(
+                from: meta, filteredByIdentifier: .commonIdentifierAlbumName).first?.load(.stringValue)
             if let t = title ?? nil, !t.isEmpty { updated.title = t }
             if let a = artist ?? nil, !a.isEmpty { updated.artist = a }
+            if let a = album ?? nil, !a.isEmpty { updated.album = a }
         }
         Artwork.invalidate(key: item.id.uuidString)  // bypass the no-art marker on manual re-fetch
         await Artwork.store(from: url, key: item.id.uuidString)
+        let filename = url.deletingPathExtension().lastPathComponent
+        if scoped { url.stopAccessingSecurityScopedResource() }
+
+        // Online lookup is opt-in — no network unless the user turned it on (Settings > Metadata).
+        // Embedded tags read first (above) seed the query; the scraper fills/overwrites them and
+        // hands back a hi-res cover to replace the embedded thumbnail.
+        if UserDefaults.standard.bool(forKey: Pref.onlineMetadata),
+           let found = await MetadataScraper.lookup(
+               title: updated.title, artist: updated.artist, filename: filename) {
+            if !found.title.isEmpty { updated.title = found.title }
+            if !found.artist.isEmpty { updated.artist = found.artist }
+            if let a = found.album, !a.isEmpty { updated.album = a }
+            if let cover = found.coverImage {
+                Artwork.invalidate(key: item.id.uuidString)
+                Artwork.store(image: cover, key: item.id.uuidString)
+            }
+        }
         update(updated)
+
+        // Lyrics ride the same fetch: LRCLIB (negative-cache aware) → cache → .lrc sidecar.
+        let lyricScope = url.startAccessingSecurityScopedResource()
+        _ = await LyricsResolver.resolve(mediaURL: url, title: updated.title,
+                                         artist: updated.artist, duration: nil,
+                                         cacheKey: item.id.uuidString)
+        if lyricScope { url.stopAccessingSecurityScopedResource() }
+        exportLyricsSidecar(updated)
     }
 
     func remove(_ item: LibraryItem) {
