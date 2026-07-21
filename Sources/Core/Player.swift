@@ -30,6 +30,11 @@ final class Player: NSObject, ObservableObject {
     /// Saved position waiting for VLC to learn the duration; applied on the first tick.
     private var pendingResume: TimeInterval?
 
+    /// What the user WANTS (last play/pause), separate from VLC's actual state. If the audio
+    /// session dies while backgrounded — a brief interruption, or the app being suspended after
+    /// audio stalled — VLC stops but this stays true, so foreground knows to resume.
+    private var intendedPlaying = false
+
     @Published private(set) var current: Item?
     @Published private(set) var isPlaying = false
     @Published private(set) var position: TimeInterval = 0
@@ -58,6 +63,19 @@ final class Player: NSObject, ObservableObject {
         super.init()
         vlc.delegate = self
         vlc.drawable = videoView
+        // Resume after an interruption ends (phone call, Siri, another app's audio). Without
+        // this the session stays deactivated and playback never comes back until relaunch.
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+            let opts = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt)
+                .map(AVAudioSession.InterruptionOptions.init) ?? []
+            if opts.contains(.shouldResume) {
+                MainActor.assumeIsolated { self?.resumePlaybackIfNeeded() }
+            }
+        }
     }
 
     /// Must succeed before any playback, or there is no background audio and no CarPlay.
@@ -65,6 +83,25 @@ final class Player: NSObject, ObservableObject {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .default)
         try session.setActive(true)
+    }
+
+    /// Foreground / interruption-end recovery. The session may have been torn down while we were
+    /// suspended, leaving it inactive so nothing plays until relaunch (the "no music unless full
+    /// restart" bug). Reactivate it and, if the user meant to be playing, resume — reloading the
+    /// media when VLC fully stopped rather than merely paused.
+    func resumePlaybackIfNeeded() {
+        try? AVAudioSession.sharedInstance().setActive(true)
+        guard intendedPlaying, !vlc.isPlaying else { return }
+        switch vlc.state {
+        case .stopped, .ended, .error:
+            guard let item = current else { return }
+            let at = position
+            vlc.media = VLCMedia(url: item.url)
+            pendingResume = at > 10 ? at : nil
+            vlc.play()
+        default:
+            vlc.play()
+        }
     }
 
     func load(_ item: Item, lyrics: Lyrics?) {
@@ -112,10 +149,11 @@ final class Player: NSObject, ObservableObject {
             artwork: current?.artwork)
     }
 
-    func play() { vlc.play() }
-    func pause() { vlc.pause() }
+    func play() { intendedPlaying = true; vlc.play() }
+    func pause() { intendedPlaying = false; vlc.pause() }
 
     func stop() {
+        intendedPlaying = false
         vlc.stop()
         if let item = current, item.scoped { item.url.stopAccessingSecurityScopedResource() }
         current = nil

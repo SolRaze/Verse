@@ -74,9 +74,19 @@ struct AirPlayButton: UIViewRepresentable {
     func makeUIView(context _: Context) -> AVRoutePickerView {
         let v = AVRoutePickerView()
         v.prioritizesVideoDevices = true
+        style(v)
         return v
     }
-    func updateUIView(_: AVRoutePickerView, context _: Context) {}
+    func updateUIView(_ v: AVRoutePickerView, context _: Context) { style(v) }
+
+    /// A plain white glyph when nothing's connected; the icon only lights (accent, or blue on the
+    /// stock white theme) once a route is active. It was inheriting the app tint, so it looked
+    /// "on" all the time even with no device connected.
+    private func style(_ v: AVRoutePickerView) {
+        v.tintColor = .white
+        let hex = UserDefaults.standard.string(forKey: Pref.theme) ?? ""
+        v.activeTintColor = hex.isEmpty ? .systemBlue : UIColor(Pref.color(for: hex))
+    }
 }
 
 /// Video surface for the AVPlayer path.
