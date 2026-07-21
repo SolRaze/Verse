@@ -9,32 +9,152 @@ struct HomeView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var playlists: PlaylistStore
     @EnvironmentObject var coordinator: Coordinator
-    @State private var showSettings = false
+    // Ordered, enabled-only shelf ids — hold a shelf header to move/remove (iPhone-home
+    // style), the ellipsis menu adds shelves back and sizes the album grid.
+    @AppStorage(Pref.homeSections) private var sectionsCSV = "now,playlists,albums,tracks"
+    /// Per-shelf sizes, "id:size" pairs; anything absent = medium.
+    @AppStorage(Pref.homeShelfSizes) private var shelfSizesCSV = ""
+    @State private var path = NavigationPath()
+
+    private func size(of id: String) -> String {
+        for pair in shelfSizesCSV.split(separator: ",") {
+            let kv = pair.split(separator: ":")
+            if kv.count == 2, kv[0] == Substring(id) { return String(kv[1]) }
+        }
+        return "medium"
+    }
+
+    private func setSize(_ id: String, _ s: String) {
+        var pairs = shelfSizesCSV.split(separator: ",").map(String.init)
+            .filter { !$0.hasPrefix(id + ":") }
+        pairs.append(id + ":" + s)
+        shelfSizesCSV = pairs.joined(separator: ",")
+    }
+
+    /// Rows a list shelf shows at each size.
+    private func rowLimit(_ id: String) -> Int {
+        switch size(of: id) { case "small": 3; case "large": 10; default: 6 }
+    }
+
+    static let allSections: [(id: String, name: String)] = [
+        ("now", "Now Playing"), ("playlists", "Playlists"), ("albums", "Most Played Albums"),
+        ("tracks", "Most Played"), ("recentAdded", "Recently Added"),
+        ("recentPlayed", "Recently Played"),
+    ]
+
+    private var sectionIDs: [String] { sectionsCSV.split(separator: ",").map(String.init) }
+
+    private func sectionName(_ id: String) -> String {
+        Self.allSections.first { $0.id == id }?.name ?? id
+    }
+
+    private func removeSection(_ id: String) {
+        sectionsCSV = sectionIDs.filter { $0 != id }.joined(separator: ",")
+    }
+
+    private func move(_ id: String, by delta: Int) {
+        var ids = sectionIDs
+        guard let i = ids.firstIndex(of: id) else { return }
+        let j = i + delta
+        guard ids.indices.contains(j) else { return }
+        ids.swapAt(i, j)
+        sectionsCSV = ids.joined(separator: ",")
+    }
+
+    @State private var editingHome = false
+
+    /// Shelf header. Normal: hold → Edit Home Screen (iPhone-style, no toolbar button).
+    /// Editing: minus badge + a size pill per shelf; add + done live in the edit section.
+    private func shelfHeader(_ id: String) -> some View {
+        HStack(spacing: 8) {
+            if editingHome {
+                Button { removeSection(id) } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundStyle(.white, .red)
+                }
+                .buttonStyle(.plain)
+            }
+            Text(sectionName(id))
+            Spacer()
+            if editingHome {
+                // Cycle small → medium → large, widget-resize spirit.
+                Button {
+                    let next = switch size(of: id) {
+                    case "small": "medium"; case "medium": "large"; default: "small"
+                    }
+                    setSize(id, next)
+                } label: {
+                    Text(size(of: id).capitalized)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .contextMenu {
+            if !editingHome {
+                Button { withAnimation(.snappy) { editingHome = true } } label: {
+                    Label("Edit Home Screen", systemImage: "square.grid.2x2")
+                }
+                Button { move(id, by: -1) } label: { Label("Move Up", systemImage: "arrow.up") }
+                Button { move(id, by: 1) } label: { Label("Move Down", systemImage: "arrow.down") }
+                Button(role: .destructive) { removeSection(id) } label: {
+                    Label("Remove from Home", systemImage: "minus.circle")
+                }
+            }
+        }
+    }
+
+    /// Shown only while editing: add removed shelves back, then Done. (Toolbar stays empty —
+    /// everything routes through holding a shelf, per the iPhone-home pattern.)
+    @ViewBuilder private var editSection: some View {
+        if editingHome {
+            Section {
+                ForEach(Self.allSections.filter { !sectionIDs.contains($0.id) }, id: \.id) { s in
+                    Button {
+                        sectionsCSV = (sectionIDs + [s.id]).joined(separator: ",")
+                    } label: {
+                        Label("Add \(s.name)", systemImage: "plus.circle.fill")
+                    }
+                }
+                Button {
+                    withAnimation(.snappy) { editingHome = false }
+                } label: {
+                    Text("Done").frame(maxWidth: .infinity).fontWeight(.semibold)
+                }
+            }
+        }
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
-                playlistsSection
-                albumsSection
-                tracksSection
+                ForEach(sectionIDs, id: \.self) { id in
+                    switch id {
+                    case "now": nowPlayingCard
+                    case "playlists": playlistsSection
+                    case "albums": albumsSection
+                    case "tracks": tracksSection
+                    case "recentAdded": recentlyAddedSection
+                    case "recentPlayed": recentlyPlayedSection
+                    default: EmptyView()
+                    }
+                }
+                editSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Music")
             .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(for: AlbumRef.self) { AlbumPage(album: $0) }
+            .navigationDestination(for: LocalPlaylist.self) { LocalPlaylistPage(playlist: $0) }
             .navigationDestination(for: FolderPath.self) { fp in
                 FolderView(path: fp.components)
             }
             .navigationDestination(for: RemotePlaylist.self) { pl in
                 PlaylistDetailView(playlist: pl)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: {
-                        Image(systemName: "gearshape")
-                    }
-                }
-            }
-            .sheet(isPresented: $showSettings) { SettingsView() }
+            // No toolbar buttons: editing enters by HOLDING a shelf (iPhone-home pattern).
             .overlay { emptyState }
         }
     }
@@ -43,32 +163,105 @@ struct HomeView: View {
 
     @ViewBuilder private var playlistsSection: some View {
         if !playlists.playlists.isEmpty {
-            Section("Playlists") {
-                ForEach(playlists.playlists) { pl in
+            Section(header: shelfHeader("playlists")) {
+                ForEach(playlists.playlists.prefix(rowLimit("playlists")).map { $0 }) { pl in
                     NavigationLink(value: pl) { PlaylistRow(playlist: pl) }
                 }
             }
         }
     }
 
+    @ViewBuilder private var nowPlayingCard: some View {
+        if coordinator.nowPlayingItem != nil || !coordinator.nowTitle.isEmpty {
+            Section(header: shelfHeader("now")) {
+                NowPlayingCard(player: coordinator.player, size: size(of: "now"))
+                    .listRowBackground(Color.white.opacity(0.06))
+            }
+        }
+    }
+
+    /// Two-up grid of most-played albums (2026-07-21, was rows).
     @ViewBuilder private var albumsSection: some View {
         let albums = library.mostPlayedAlbums()
         if !albums.isEmpty {
-            Section("Most Played Albums") {
-                ForEach(albums, id: \.path) { album in
-                    NavigationLink(value: FolderPath(album.path)) {
-                        FolderRow(name: album.path.last ?? "",
-                                  count: library.descendants(of: album.path).count)
+            // Grid density is a user knob (Small 3-up / Medium 2-up / Large 1-up), Apple-widget
+            // sizing spirit. Buttons push via the explicit path — a NavigationLink inside a
+            // LazyVGrid row fired multiple pushes (the "swipe back three times" bug).
+            let grid = size(of: "albums")
+            let cols = grid == "small" ? 3 : grid == "large" ? 1 : 2
+            Section(header: shelfHeader("albums")) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12),
+                                         count: cols), spacing: 14) {
+                    ForEach(albums, id: \.name) { album in
+                        Button { path.append(AlbumRef(name: album.name)) } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                albumCover(album.name)
+                                Text(album.name)
+                                    .font(grid == "small" ? .caption : .footnote.weight(.semibold))
+                                    .lineLimit(1)
+                                Text("\(album.plays) play\(album.plays == 1 ? "" : "s")")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    private func albumCover(_ name: String) -> some View {
+        let _ = library.artworkVersion
+        let src = library.items.first {
+            $0.albumKey == name && Artwork.image(for: $0.id.uuidString) != nil
+        }
+        return Group {
+            if let src, let img = Artwork.image(for: src.id.uuidString) {
+                Image(uiImage: img).resizable().aspectRatio(1, contentMode: .fill)
+            } else {
+                RoundedRectangle(cornerRadius: 10).fill(.quaternary)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay(Image(systemName: "square.stack").foregroundStyle(.secondary))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder private var recentlyAddedSection: some View {
+        let recent = library.items
+            .sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            .prefix(rowLimit("recentAdded")).map { $0 }
+        if !recent.isEmpty {
+            Section(header: shelfHeader("recentAdded")) {
+                ForEach(recent) { item in
+                    Button { coordinator.play(item, in: recent) } label: { ItemRow(item: item) }
+                        .tint(.primary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var recentlyPlayedSection: some View {
+        let recent = library.items.filter { $0.lastPlayed != nil }
+            .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+            .prefix(rowLimit("recentPlayed")).map { $0 }
+        if !recent.isEmpty {
+            Section(header: shelfHeader("recentPlayed")) {
+                ForEach(recent) { item in
+                    Button { coordinator.play(item, in: recent) } label: { ItemRow(item: item) }
+                        .tint(.primary)
                 }
             }
         }
     }
 
     @ViewBuilder private var tracksSection: some View {
-        let tracks = library.mostPlayedTracks()
+        let tracks = library.mostPlayedTracks(limit: rowLimit("tracks"))
         if !tracks.isEmpty {
-            Section("Most Played") {
+            Section(header: shelfHeader("tracks")) {
                 ForEach(tracks) { item in
                     Button { coordinator.play(item, in: tracks) } label: { ItemRow(item: item) }
                         .tint(.primary)
@@ -91,6 +284,83 @@ struct HomeView: View {
                     "Nothing played yet", systemImage: "play.circle",
                     description: Text("Play something and your most-played albums and tracks show up here."))
             }
+        }
+    }
+}
+
+/// Widget-shaped Now Playing card, shared by Home and the Queue sheet: cover, title,
+/// play/pause, and the wave scrubber in a pill beneath (real audio when decodable).
+struct NowPlayingCard: View {
+    @EnvironmentObject var coordinator: Coordinator
+    @ObservedObject var player: Player
+    /// "small" = one compact row, no scrubber. "medium" = row + scrubber pill.
+    /// "large" = big cover on top, widget-large spirit.
+    var size: String = "medium"
+    @State private var samples: [Float]?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if size == "large" {
+                Button { coordinator.showPlayer = true } label: {
+                    artView
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: 220)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+            Button { coordinator.showPlayer = true } label: {
+                HStack(spacing: 12) {
+                    if size != "large" {
+                        artView
+                            .frame(width: size == "small" ? 40 : 56,
+                                   height: size == "small" ? 40 : 56)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        if size != "small" {
+                            Text("Now Playing").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Text(coordinator.nowTitle)
+                            .font(.subheadline.weight(.semibold)).lineLimit(1)
+                        if !coordinator.nowArtist.isEmpty {
+                            Text(coordinator.nowArtist)
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Button { player.toggle() } label: {
+                        Image(systemName: player.isPlaying
+                            ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: size == "small" ? 28 : 36))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .tint(.primary)
+
+            if size != "small", coordinator.engine == .vlc {
+                WaveScrubber(samples: samples,
+                             position: player.position,
+                             duration: player.duration) { player.seek(to: $0) }
+                    .frame(height: 18)
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(.white.opacity(0.08), in: Capsule())
+            }
+        }
+        .task(id: player.current?.url) {
+            samples = nil
+            if let url = player.current?.url { samples = await Waveform.load(url: url) }
+        }
+    }
+
+    @ViewBuilder private var artView: some View {
+        if let art = player.current?.artwork {
+            Image(uiImage: art).resizable().scaledToFill()
+        } else {
+            RoundedRectangle(cornerRadius: 10).fill(.quaternary)
+                .overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
         }
     }
 }
