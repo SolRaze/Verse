@@ -8,6 +8,7 @@ struct RootView: View {
     enum Tab { case home, library, search }
     @State private var tab: Tab = .home
     @AppStorage(Pref.theme) private var theme = ""
+    @AppStorage(Pref.iPodMode) private var iPodMode = false
 
     var body: some View {
         // The accessory is ALWAYS attached (Apple-Music style, inbox-2): the dock must look the
@@ -16,6 +17,10 @@ struct RootView: View {
         tabs
             .tabViewBottomAccessory { MiniPlayerBar(player: coordinator.player) }
             .sheet(isPresented: $coordinator.showPlayer) { PlayerView() }
+            // iPod mode rides on top; MENU (or the toggle) leaves it.
+            .fullScreenCover(isPresented: $iPodMode) {
+                IPodView(player: coordinator.player)
+            }
             .onChange(of: coordinator.deepLink) { _, link in
                 if link != nil { tab = .library }
             }
@@ -31,6 +36,7 @@ struct RootView: View {
             SwiftUI.Tab("Library", systemImage: "music.note.list", value: Tab.library) {
                 LibraryView()
             }
+            // Settings pushes from Library's top-left gear (2026-07-21) — no dock tab.
             // role: .search puts this in the dock's own search pill, Files-app style.
             SwiftUI.Tab(value: Tab.search, role: .search) {
                 SearchView()
