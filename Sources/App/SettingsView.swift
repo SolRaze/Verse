@@ -155,18 +155,16 @@ struct SettingsView: View {
                     Button {
                         importKind = .files; showingImport = true
                     } label: { Label("Import Files", systemImage: "doc.badge.plus") }
-                    if library.importedRoots.isEmpty {
-                        Text("No folders imported").foregroundStyle(.secondary)
-                    } else {
-                        // Swipe a folder to remove it and its tracks. Sidecars stay with the
-                        // files, so re-importing restores everything.
-                        ForEach(library.importedRoots, id: \.self) { root in
-                            LabeledContent("Folder", value: root)
-                                .swipeActions {
-                                    Button(role: .destructive) {
-                                        library.removeImportedRoot(root)
-                                    } label: { Label("Remove", systemImage: "trash") }
-                                }
+                    // One row for every imported folder instead of a row each — the list stays
+                    // short, the folders live behind it.
+                    NavigationLink {
+                        LocationsView()
+                    } label: {
+                        LabeledContent {
+                            Text(library.importedRoots.isEmpty ? "None"
+                                : "\(library.importedRoots.count)")
+                        } label: {
+                            Label("Locations", systemImage: "folder")
                         }
                     }
                     NavigationLink {
@@ -177,7 +175,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Library")
                 } footer: {
-                    Text("Swipe a folder to remove it from the library (files and their sidecars stay on disk — re-import restores everything). Fetching, file locations and online lookup live under Metadata & Fetching.")
+                    Text("Locations lists every imported folder (swipe to remove — files and their sidecars stay on disk, re-import restores everything). Fetching and online lookup live under Metadata & Fetching.")
                 }
 
                 Section {
@@ -387,6 +385,32 @@ struct MetadataSettingsView: View {
             }
         }
         .disabled(library.rescanning)
+    }
+}
+
+/// Every imported folder on one page (was a row each in Settings). Swipe to remove — files and
+/// sidecars stay on disk, so re-importing restores the library.
+struct LocationsView: View {
+    @EnvironmentObject var library: LibraryStore
+
+    var body: some View {
+        List {
+            if library.importedRoots.isEmpty {
+                ContentUnavailableView("No folders imported", systemImage: "folder",
+                                       description: Text("Import a folder from Settings or the Library tab."))
+            } else {
+                ForEach(library.importedRoots, id: \.self) { root in
+                    LabeledContent("Folder", value: root)
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                library.removeImportedRoot(root)
+                            } label: { Label("Remove", systemImage: "trash") }
+                        }
+                }
+            }
+        }
+        .navigationTitle("Locations")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
