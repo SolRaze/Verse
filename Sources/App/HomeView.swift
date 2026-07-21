@@ -92,6 +92,10 @@ struct HomeView: View {
                 .buttonStyle(.plain)
             }
         }
+        // The Spacer leaves most of the header empty; without an explicit hit shape the long
+        // press only lands on the text glyphs, so "hold to edit" felt dead (2026-07-21). A
+        // full-width content shape makes the whole header row press-able.
+        .contentShape(Rectangle())
         .contextMenu {
             if !editingHome {
                 Button { withAnimation(.snappy) { editingHome = true } } label: {
@@ -182,6 +186,9 @@ struct HomeView: View {
 
     /// Two-up grid of most-played albums (2026-07-21, was rows).
     @ViewBuilder private var albumsSection: some View {
+        // Read here (not only inside albumCover) so a fetched cover re-renders the whole grid —
+        // the helper's read alone didn't reliably register the dependency (2026-07-21).
+        let _ = library.artworkVersion
         let albums = library.mostPlayedAlbums()
         if !albums.isEmpty {
             // Grid density is a user knob (Small 3-up / Medium 2-up / Large 1-up), Apple-widget
