@@ -27,9 +27,17 @@ private struct NowPlayingPane: View {
         return l.isSynced || l.plain != nil
     }
 
+    @AppStorage(Pref.tintedBackground) private var tintedBG = false
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            // Optional cover-tinted wash (Settings › Lyrics › Tinted Background). Solid dim
+            // colour, not a gradient — the no-gradient rule holds.
+            if tintedBG, let art = player.current?.artwork,
+               let c = Artwork.dominantColor(art) {
+                Color(c).opacity(0.18).ignoresSafeArea()
+            }
 
             if showLyrics, let lyrics = player.lyrics, hasLyrics {
                 LyricsScreen(player: player, lyrics: lyrics, showQueue: $showQueue) {
@@ -91,8 +99,11 @@ private struct NowPlayingPane: View {
                 }
                 // Only library files live somewhere to view; remote queue entries don't.
                 if case .file = item.source {
-                    Button { coordinator.open(.folder(item.folders)) } label: {
-                        Label("View Track", systemImage: "music.note")
+                    // Album page, not the disk folder — file locations never display.
+                    Button {
+                        coordinator.open(item.albumKey.isEmpty ? .folder([]) : .album(item.albumKey))
+                    } label: {
+                        Label("View Album", systemImage: "square.stack")
                     }
                 }
                 if !item.artist.isEmpty {
@@ -120,7 +131,9 @@ private struct NowPlayingPane: View {
 
     @ViewBuilder private var artOrVideo: some View {
         // Square corners on the art, per the redesign — no rounding anywhere here.
-        if player.current?.artwork == nil, player.duration > 0 {
+        // Gate on the ITEM being video, not duration>0 — coverless audio was rendering the
+        // empty VLC surface instead of the placeholder (issue #8).
+        if player.current?.artwork == nil, coordinator.nowPlayingItem?.isVideo == true {
             // VLC-only video (mkv/webm/…) draws here; audio shows the placeholder square.
             VideoSurface(view: player.videoView)
                 .aspectRatio(16 / 9, contentMode: .fit)
@@ -238,6 +251,15 @@ private struct LyricsScreen: View {
     @Binding var showQueue: Bool
     let onClose: () -> Void
     @State private var samples: [Float]?
+    @AppStorage(Pref.lyricsCoverColour) private var coverColour = false
+
+    /// The active-line tint: the cover's dominant colour when the setting is on and there's
+    /// artwork, otherwise stock white.
+    private var lineTint: Color {
+        guard coverColour, let art = player.current?.artwork,
+              let c = Artwork.dominantColor(art) else { return .white }
+        return Color(c)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -246,8 +268,10 @@ private struct LyricsScreen: View {
             HStack {
                 Color.clear.frame(width: 34, height: 34)
                 Spacer()
+                // .headline = the one title style used on inline bars app-wide (user request:
+                // bigger, uniform).
                 Text(player.current?.title ?? "")
-                    .font(.subheadline.weight(.semibold)).lineLimit(1)
+                    .font(.headline).lineLimit(1)
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -259,7 +283,7 @@ private struct LyricsScreen: View {
             }
             .padding(.top, 14)
 
-            LyricsPane(lyrics: lyrics, position: player.position) { player.seek(to: $0) }
+            LyricsPane(lyrics: lyrics, position: player.position, tint: lineTint) { player.seek(to: $0) }
 
             // The wave alone in a capsule, no name (the top bar carries it) — same pill
             // language as the dock mini player, per reference/files-layer.png. Real audio when
@@ -346,29 +370,75 @@ struct WaveScrubber: View {
     }
 }
 
-/// Up-next list behind the lyrics screen's queue button.
+/// The queue sheet: player-black background (the grouped-grey default looked like another
+/// app), Now Playing pinned on top, Up Next below with drag-reorder (Edit) and swipe-remove.
 private struct QueueSheet: View {
     @EnvironmentObject var coordinator: Coordinator
     @Environment(\.dismiss) private var dismiss
+    @State private var infoItem: LibraryItem?
 
     var body: some View {
         NavigationStack {
             List {
-                if coordinator.upNext.isEmpty {
-                    ContentUnavailableView("Queue is empty", systemImage: "list.bullet")
-                } else {
-                    ForEach(coordinator.upNext) { item in
-                        Button { coordinator.jumpTo(item) } label: { QueueRow(item: item) }
-                            .tint(.primary)
+                if coordinator.nowPlayingItem != nil {
+                    // Same widget card as Home, wave pill included.
+                    Section {
+                        NowPlayingCard(player: coordinator.player)
+                            .listRowBackground(Color.white.opacity(0.06))
                     }
+                }
+                Section {
+                    if coordinator.upNext.isEmpty {
+                        Text("Nothing queued — hold a song and Add to Queue.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
+                    } else {
+                        // No onDelete: that's what drew the minus circles in edit mode. The
+                        // handle only reorders; removal is swipe or the hold menu.
+                        ForEach(coordinator.upNext) { item in
+                            Button { coordinator.jumpTo(item) } label: { QueueRow(item: item) }
+                                .tint(.primary)
+                                .listRowBackground(Color.clear)
+                                .swipeActions {
+                                    Button(role: .destructive) { remove(item) } label: {
+                                        Label("Remove", systemImage: "minus.circle")
+                                    }
+                                }
+                                .contextMenu {
+                                    Button { remove(item) } label: {
+                                        Label("Remove from Queue", systemImage: "minus.circle")
+                                    }
+                                    ItemContextMenu(item: item, queue: coordinator.upNext,
+                                                    infoItem: $infoItem)
+                                }
+                        }
+                        .onMove { coordinator.moveUpNext(from: $0, to: $1) }
+                    }
+                } header: {
+                    Text("Up Next").foregroundStyle(.secondary)
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("Up Next")
+            .scrollContentBackground(.hidden)
+            .background(Color.black)
+            // Always-on drag handles on the right — no Edit mode dance. Swipe deletes.
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
+        .presentationBackground(Color.black)
+        .themedTint()
         .preferredColorScheme(.dark)
+        .modifier(TrackSheets(infoItem: $infoItem))
+    }
+
+    private func remove(_ item: LibraryItem) {
+        if let i = coordinator.upNext.firstIndex(of: item) {
+            coordinator.removeUpNext(at: IndexSet(integer: i))
+        }
     }
 }
 
@@ -382,7 +452,12 @@ private struct VideoSurface: UIViewRepresentable {
 private struct LyricsPane: View {
     let lyrics: Lyrics
     let position: TimeInterval
+    var tint: Color = .white
     let onSeek: (TimeInterval) -> Void
+    @AppStorage(Pref.lyricsFont) private var fontDesign = "system"
+    @AppStorage(Pref.lyricsSize) private var fontSize = 22.0
+
+    private var lineFont: Font { Pref.lyricsFont(id: fontDesign, size: fontSize) }
 
     var body: some View {
         if lyrics.isSynced {
@@ -392,8 +467,8 @@ private struct LyricsPane: View {
                     LazyVStack(alignment: .leading, spacing: 22) {
                         ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { i, line in
                             Text(line.text.isEmpty ? "♪" : line.text)
-                                .font(.title2.bold())
-                                .foregroundStyle(i == current ? .white : .white.opacity(0.35))
+                                .font(lineFont)
+                                .foregroundStyle(i == current ? AnyShapeStyle(tint) : AnyShapeStyle(.white.opacity(0.35)))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .id(i)
                                 .onTapGesture { onSeek(line.time + lyrics.offset) }
@@ -409,7 +484,7 @@ private struct LyricsPane: View {
         } else if let plain = lyrics.plain {
             ScrollView {
                 Text(plain)
-                    .font(.title3.weight(.semibold))
+                    .font(lineFont)
                     .foregroundStyle(.white.opacity(0.85))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 40)
@@ -485,14 +560,21 @@ private struct QueueRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AsyncImage(url: item.thumbnailURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Rectangle().fill(.quaternary)
-                    .overlay(Image(systemName: item.isVideo ? "film" : "music.note")
-                        .foregroundStyle(.secondary))
+            // Album cover first (local cache); YouTube thumb as fallback.
+            Group {
+                if let img = Artwork.image(for: item.id.uuidString) {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else {
+                    AsyncImage(url: item.thumbnailURL) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Rectangle().fill(.quaternary)
+                            .overlay(Image(systemName: item.isVideo ? "film" : "music.note")
+                                .foregroundStyle(.secondary))
+                    }
+                }
             }
-            .frame(width: 84, height: 47)
+            .frame(width: 44, height: 44)
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 2) {
