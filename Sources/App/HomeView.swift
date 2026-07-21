@@ -14,7 +14,10 @@ struct HomeView: View {
     @AppStorage(Pref.homeSections) private var sectionsCSV = "now,playlists,albums,tracks"
     /// Per-shelf sizes, "id:size" pairs; anything absent = medium.
     @AppStorage(Pref.homeShelfSizes) private var shelfSizesCSV = ""
+    @AppStorage(Pref.createUnlocked) private var createUnlocked = false
     @State private var path = NavigationPath()
+    @State private var showCreate = false
+    @State private var unlockFlash = false
 
     private func size(of id: String) -> String {
         for pair in shelfSizesCSV.split(separator: ",") {
@@ -160,7 +163,47 @@ struct HomeView: View {
             }
             // No toolbar buttons: editing enters by HOLDING a shelf (iPhone-home pattern).
             .overlay { emptyState }
+            // Hidden Create page. Locked: a triple-tap on the title strip unlocks it (with a
+            // brief confirmation). Unlocked: a right-swipe from the left edge opens it.
+            .overlay(alignment: .top) { if !createUnlocked { unlockStrip } }
+            .overlay(alignment: .top) { if unlockFlash { unlockConfirmation } }
+            .simultaneousGesture(revealSwipe)
+            .fullScreenCover(isPresented: $showCreate) { CreatePage() }
         }
+    }
+
+    /// A clear band over the large title that only listens for a triple-tap (single taps and
+    /// scrolls fall through). Removed once unlocked so it never blocks anything again.
+    private var unlockStrip: some View {
+        Color.clear.frame(height: 90).contentShape(Rectangle())
+            .onTapGesture(count: 3) {
+                createUnlocked = true
+                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                withAnimation { unlockFlash = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    withAnimation { unlockFlash = false }
+                }
+            }
+    }
+
+    private var unlockConfirmation: some View {
+        Text("Create unlocked — swipe right")
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// Left-edge right-swipe opens Create (only once unlocked). Edge-anchored + mostly-horizontal
+    /// so it doesn't fight the List's vertical scroll.
+    private var revealSwipe: some Gesture {
+        DragGesture(minimumDistance: 30)
+            .onEnded { v in
+                guard createUnlocked, v.startLocation.x < 40,
+                      v.translation.width > 90, abs(v.translation.height) < 60 else { return }
+                showCreate = true
+            }
     }
 
     // MARK: shelves

@@ -12,6 +12,7 @@ enum Pref {
     static let showFilePaths = "library.showFilePaths"
     static let tintedBackground = "appearance.tintedBackground"  // player bg from cover colour
     static let iPodMode = "appearance.iPodMode"                  // click-wheel skeleton (beta)
+    static let createUnlocked = "create.unlocked"               // hidden Create page revealed
     static let lyricsFont = "lyrics.fontDesign"      // design keyword or PostScript name
     static let lyricsSize = "lyrics.fontSize"        // Double, points; 22 = old title2 look
     static let customSwatches = "appearance.customSwatches"  // comma-joined RRGGBB list
