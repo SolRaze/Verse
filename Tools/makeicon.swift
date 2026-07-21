@@ -142,7 +142,15 @@ if style == "vinyl" {
             (330, 0.78, 0.65, 0.40),
             (350, 0.86, 0.60, 0.22),
         ]
-        let stops = yandhi ? pale : yeezus ? refined : dark
+        // Pastel remap (2026-07-21 user request, YEEZUS ONLY): coloured stops soften toward
+        // yandhi's palette — saturation down, brightness up — while unlit (s == 0) sectors and
+        // the spokes stay dark. Classic keeps the original dark stops (pastelising both made
+        // Verse and Yeezus identical — reverted same day).
+        func pastel(_ stops: [(ang: Double, h: CGFloat, s: CGFloat, b: CGFloat)])
+            -> [(ang: Double, h: CGFloat, s: CGFloat, b: CGFloat)] {
+            stops.map { $0.s == 0 ? $0 : ($0.ang, $0.h, $0.s * 0.6, min(1, max($0.b, 0.45) + 0.30)) }
+        }
+        let stops = yandhi ? pale : yeezus ? pastel(refined) : dark
         func nearestStop(_ ang: Double) -> (h: CGFloat, s: CGFloat, b: CGFloat) {
             var best = stops[0], bestD = 999.0
             for s in stops {
