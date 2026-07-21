@@ -5,7 +5,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var coordinator: Coordinator
 
-    enum Tab { case home, library, search }
+    enum Tab { case home, library, create, search }
     @State private var tab: Tab = .home
     @AppStorage(Pref.theme) private var theme = ""
     @AppStorage(Pref.iPodMode) private var iPodMode = false
@@ -36,11 +36,29 @@ struct RootView: View {
             SwiftUI.Tab("Library", systemImage: "music.note.list", value: Tab.library) {
                 LibraryView()
             }
+            // Create: a dock placeholder for planned making tools (stems, mixes) — faded, taps
+            // just say "in the works" (2026-07-21 user request).
+            SwiftUI.Tab("Create", systemImage: "plus.circle", value: Tab.create) {
+                CreatePlaceholder()
+            }
             // Settings pushes from Library's top-left gear (2026-07-21) — no dock tab.
             // role: .search puts this in the dock's own search pill, Files-app style.
             SwiftUI.Tab(value: Tab.search, role: .search) {
                 SearchView()
             }
         }
+    }
+}
+
+/// The Create tab's stand-in: the making tools (Stem Player, mixes) aren't built yet, so the tab
+/// exists faded with a "coming" message instead of a working editor.
+private struct CreatePlaceholder: View {
+    var body: some View {
+        ContentUnavailableView {
+            Label("Create", systemImage: "plus.circle")
+        } description: {
+            Text("Making tools — Stem Player and mixes — are in the works. This tab is a placeholder until they land.")
+        }
+        .opacity(0.6)
     }
 }
