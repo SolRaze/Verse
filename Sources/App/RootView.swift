@@ -5,7 +5,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var coordinator: Coordinator
 
-    enum Tab { case home, library, create, search }
+    enum Tab { case home, library, search }
     @State private var tab: Tab = .home
     @AppStorage(Pref.theme) private var theme = ""
     @AppStorage(Pref.iPodMode) private var iPodMode = false
@@ -36,11 +36,8 @@ struct RootView: View {
             SwiftUI.Tab("Library", systemImage: "music.note.list", value: Tab.library) {
                 LibraryView()
             }
-            // Create: a dock placeholder for planned making tools (stems, mixes) — faded, taps
-            // just say "in the works" (2026-07-21 user request).
-            SwiftUI.Tab("Create", systemImage: "plus.circle", value: Tab.create) {
-                CreatePlaceholder()
-            }
+            // Create is NOT in the dock (2026-07-21): it's a hidden page — triple-tap the Home
+            // title to unlock, then swipe right on Home to open it (see HomeView).
             // Settings pushes from Library's top-left gear (2026-07-21) — no dock tab.
             // role: .search puts this in the dock's own search pill, Files-app style.
             SwiftUI.Tab(value: Tab.search, role: .search) {
@@ -50,15 +47,25 @@ struct RootView: View {
     }
 }
 
-/// The Create tab's stand-in: the making tools (Stem Player, mixes) aren't built yet, so the tab
-/// exists faded with a "coming" message instead of a working editor.
-private struct CreatePlaceholder: View {
+/// The hidden Create page (unlock via triple-tap on Home's title, open via right-swipe). Shaped
+/// like a real tab — large navigation title in the same format as Home/Library — even though it
+/// isn't in the dock. Swipe left to leave. Making tools (Stem Player, mixes) aren't built yet.
+struct CreatePage: View {
+    @Environment(\.dismiss) private var dismiss
     var body: some View {
-        ContentUnavailableView {
-            Label("Create", systemImage: "plus.circle")
-        } description: {
-            Text("Making tools — Stem Player and mixes — are in the works. This tab is a placeholder until they land.")
+        NavigationStack {
+            ContentUnavailableView {
+                Label("Create", systemImage: "plus.circle")
+            } description: {
+                Text("Making tools — Stem Player and mixes — are in the works. Swipe left to go back.")
+            }
+            .opacity(0.6)
+            .navigationTitle("Create")
+            .navigationBarTitleDisplayMode(.large)
         }
-        .opacity(0.6)
+        // Mirrors the reveal: a right-swipe opened it, a left-swipe closes it.
+        .gesture(DragGesture(minimumDistance: 30).onEnded { v in
+            if v.translation.width < -90, abs(v.translation.height) < 60 { dismiss() }
+        })
     }
 }
