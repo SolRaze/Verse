@@ -155,25 +155,34 @@ final class NowPlaying {
         endActivity()
         guard let track, let lyrics, lyrics.isSynced,
               ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        let state = LyricActivityAttributes.ContentState(
-            previous: "", current: "", next: lyrics.lines.first?.text ?? "", isPlaying: false)
+        // Seed from the CURRENT position, not an empty state — otherwise a mid-song attach()
+        // shows the song title for one tick before the first sync corrects it (the flash).
+        let pos = center.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime]
+            as? TimeInterval ?? 0
+        let state = contentState(index: lyrics.lineIndex(at: pos), playing: isPlaying)
         activityState = state
         activity = try? Activity.request(
             attributes: LyricActivityAttributes(title: track.title, artist: track.artist),
             content: .init(state: state, staleDate: nil))
     }
 
-    /// Cheap when nothing changed: dedups on ContentState equality, so it only hits ActivityKit
-    /// on a line change or a play/pause flip — seconds apart, well inside update budgets.
-    private func syncActivity(index: Int?, playing: Bool) {
-        guard let activity, let lyrics else { return }
-        let lines = lyrics.lines
-        let state = LyricActivityAttributes.ContentState(
+    /// Build the three-line window (previous/current/next) for a line index. Shared by the
+    /// initial seed and every tick so they can't disagree.
+    private func contentState(index: Int?, playing: Bool) -> LyricActivityAttributes.ContentState {
+        let lines = lyrics?.lines ?? []
+        return LyricActivityAttributes.ContentState(
             previous: index.flatMap { $0 > 0 ? lines[$0 - 1].text : nil } ?? "",
             current: index.map { lines[$0].text } ?? "",
             next: index.map { $0 + 1 < lines.count ? lines[$0 + 1].text : "" }
                 ?? lines.first?.text ?? "",
             isPlaying: playing)
+    }
+
+    /// Cheap when nothing changed: dedups on ContentState equality, so it only hits ActivityKit
+    /// on a line change or a play/pause flip — seconds apart, well inside update budgets.
+    private func syncActivity(index: Int?, playing: Bool) {
+        guard let activity else { return }
+        let state = contentState(index: index, playing: playing)
         guard state != activityState else { return }
         activityState = state
         let sent = Sent(activity)
