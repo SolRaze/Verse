@@ -379,14 +379,18 @@ private struct QueueSheet: View {
 
     var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+            if coordinator.nowPlayingItem != nil {
+                // Same widget card as Home — above the List so it gets no row chrome
+                // (separators, edit-mode insets), just its own rounded card.
+                NowPlayingCard(player: coordinator.player)
+                    .padding(14)
+                    .background(Color.white.opacity(0.06),
+                                in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+            }
             List {
-                if coordinator.nowPlayingItem != nil {
-                    // Same widget card as Home, wave pill included.
-                    Section {
-                        NowPlayingCard(player: coordinator.player)
-                            .listRowBackground(Color.white.opacity(0.06))
-                    }
-                }
                 Section {
                     if coordinator.upNext.isEmpty {
                         Text("Nothing queued — hold a song and Add to Queue.")
@@ -420,9 +424,10 @@ private struct QueueSheet: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(Color.black)
             // Always-on drag handles on the right — no Edit mode dance. Swipe deletes.
             .environment(\.editMode, .constant(.active))
+            }
+            .background(Color.black)
             .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
