@@ -41,6 +41,7 @@ enum Pref {
         }
     }
     static let onlineMetadata = "metadata.online"
+    static let metadataExcludedFolders = "metadata.excludedFolders"  // newline-joined root names
 
     /// Accent swatches offered before the custom picker (inbox-3: "a group like the icon
     /// selection, and the colour of the square"). "" = stock white; Red = the Yeezus/Classic
@@ -89,8 +90,6 @@ struct SettingsView: View {
     @AppStorage(Pref.carPlayTextFallback) private var carPlayFallback = false
     @AppStorage(Pref.lyricsCoverColour) private var lyricsCoverColour = false
     @AppStorage(Pref.sponsorBlock) private var sponsorBlock = true
-    @AppStorage(Pref.onlineMetadata) private var onlineMetadata = false
-    @AppStorage(Pref.showFilePaths) private var showFilePaths = false
     @AppStorage(Pref.lyricsFont) private var lyricsFont = "system"
     @AppStorage(Pref.lyricsSize) private var lyricsSize = 22.0
     @AppStorage(Pref.customSwatches) private var customSwatches = ""
@@ -101,12 +100,15 @@ struct SettingsView: View {
     @State private var cachesCleared = false
     @State private var wipAlert: String?
 
-    /// Planned features (mirrors BACKLOG.md) — shown faded under "In the Works".
+    /// Planned features (mirrors BACKLOG.md) — shown faded under "In the Works", grouped by the
+    /// surface they'll land on so the list reads by where it'll appear (2026-07-21 user request).
     /// (iPod Mode graduated to a beta toggle in Appearance.)
-    static let inTheWorks = [
-        "Stem Player (per-stem audio)", "Jellyfin Servers", "Locations Tab",
-        "Wrapped (year recap)", "Import Summary Sheet",
-        "Hi-Res / Low-Res Version Picker", "Folder Organize Macro", "Karaoke Word Timing",
+    static let inTheWorks: [(area: String, items: [String])] = [
+        ("Player", ["Stem Player (per-stem audio)", "Karaoke Word Timing"]),
+        ("Library", ["Jellyfin Servers", "Locations Tab", "Hi-Res / Low-Res Version Picker",
+                     "Folder Organize Macro"]),
+        ("Home", ["Wrapped (year recap)"]),
+        ("Import", ["Import Summary Sheet"]),
     ]
     // Owned by the system, not UserDefaults — read back what's actually set.
     @State private var appIcon: String? = UIApplication.shared.alternateIconName
@@ -166,29 +168,15 @@ struct SettingsView: View {
                                 }
                         }
                     }
-                    Toggle("Show File Locations", isOn: $showFilePaths)
                     NavigationLink {
-                        SidecarLocationView()
+                        MetadataSettingsView()
                     } label: {
-                        LabeledContent("Metadata Location",
-                                       value: library.customSidecarFolderName ?? "Beside files")
-                    }
-                    busyButton("Rescan Library") { await library.rescanLibrary() }
-                    // Separate buttons (2026-07-21): isolate which online fetch fails.
-                    busyButton("Fetch Metadata") { await library.fetchOnlineTags() }
-                    busyButton("Fetch Artwork") { await library.fetchOnlineArtwork() }
-                    busyButton("Fetch Lyrics") { await library.fetchAllLyrics() }
-                    if library.rescanning, !library.rescanStatus.isEmpty {
-                        Text(library.rescanStatus)
-                            .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                    } else if !library.lastFetchSummary.isEmpty {
-                        Text(library.lastFetchSummary)
-                            .font(.footnote).foregroundStyle(.secondary)
+                        Label("Metadata & Fetching", systemImage: "text.magnifyingglass")
                     }
                 } header: {
                     Text("Library")
                 } footer: {
-                    Text("Swipe a folder to remove it from the library (files and their sidecars stay on disk — re-import restores everything). Rescan re-reads embedded tags and covers, honouring the Online Metadata toggle. The Fetch buttons always go online: covers and albums from MusicBrainz, lyrics from LRCLIB — both save beside your files.")
+                    Text("Swipe a folder to remove it from the library (files and their sidecars stay on disk — re-import restores everything). Fetching, file locations and online lookup live under Metadata & Fetching.")
                 }
 
                 Section {
@@ -256,14 +244,6 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Online Metadata", isOn: $onlineMetadata)
-                } header: {
-                    Text("Metadata")
-                } footer: {
-                    Text("Looks up title, artist, album and high-res cover art online via MusicBrainz when importing, rescanning or fetching metadata. Off by default — no network unless you ask.")
-                }
-
-                Section {
                     Button(cachesCleared ? "Caches Cleared" : "Clear Caches") { clearCaches() }
                         .disabled(cachesCleared)
                     if let backup = library.backupURL() {
@@ -276,21 +256,26 @@ struct SettingsView: View {
                 }
 
                 // Faded skeletons for what's planned — tap says so. Mirrors BACKLOG.md.
-                Section {
-                    ForEach(Self.inTheWorks, id: \.self) { name in
-                        Button { wipAlert = name } label: {
-                            HStack {
-                                Text(name)
-                                Spacer()
-                                Text("planned").font(.caption2).foregroundStyle(.tertiary)
+                // One section per surface (Player / Library / Home / Import).
+                ForEach(Self.inTheWorks, id: \.area) { group in
+                    Section {
+                        ForEach(group.items, id: \.self) { name in
+                            Button { wipAlert = name } label: {
+                                HStack {
+                                    Text(name)
+                                    Spacer()
+                                    Text("planned").font(.caption2).foregroundStyle(.tertiary)
+                                }
                             }
+                            .foregroundStyle(.secondary.opacity(0.6))
                         }
-                        .foregroundStyle(.secondary.opacity(0.6))
+                    } header: {
+                        Text("In the Works · \(group.area)")
+                    } footer: {
+                        if group.area == Self.inTheWorks.last?.area {
+                            Text("Planned features from the backlog — not built yet, grouped by where they'll show up.")
+                        }
                     }
-                } header: {
-                    Text("In the Works")
-                } footer: {
-                    Text("Planned features from the backlog — not built yet, listed so you know what's coming.")
                 }
             }
             .navigationTitle("Settings")
@@ -329,6 +314,91 @@ struct SettingsView: View {
             try? FileManager.default.removeItem(at: caches.appendingPathComponent(sub))
         }
         cachesCleared = true
+    }
+}
+
+/// Everything about fetching + where metadata lives, moved off the main Settings list into one
+/// place (2026-07-21 user request): the online toggle, per-folder opt-out, the Fetch buttons,
+/// file-path visibility and the sidecar location.
+struct MetadataSettingsView: View {
+    @EnvironmentObject var library: LibraryStore
+    @AppStorage(Pref.onlineMetadata) private var onlineMetadata = false
+    @AppStorage(Pref.showFilePaths) private var showFilePaths = false
+    @AppStorage(Pref.metadataExcludedFolders) private var excludedCSV = ""
+
+    private var excluded: Set<String> {
+        Set(excludedCSV.split(separator: "\n").map(String.init))
+    }
+    private func setExcluded(_ root: String, _ off: Bool) {
+        var set = excluded
+        if off { set.insert(root) } else { set.remove(root) }
+        excludedCSV = set.sorted().joined(separator: "\n")
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Online Metadata", isOn: $onlineMetadata)
+            } footer: {
+                Text("Looks up album, artist and high-res cover art via MusicBrainz on import and rescan. The Fetch buttons below always go online regardless. Off by default — no network unless you ask.")
+            }
+
+            Section {
+                busyButton("Rescan Library") { await library.rescanLibrary() }
+                busyButton("Fetch Metadata") { await library.fetchOnlineTags() }
+                busyButton("Fetch Artwork") { await library.fetchOnlineArtwork() }
+                busyButton("Fetch Lyrics") { await library.fetchAllLyrics() }
+                if library.rescanning, !library.rescanStatus.isEmpty {
+                    Text(library.rescanStatus)
+                        .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                } else if !library.lastFetchSummary.isEmpty {
+                    Text(library.lastFetchSummary)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Fetch")
+            } footer: {
+                Text("Albums are looked up whole — one release match brings the tracklist (disc and track numbers) and a single cover for the folder. Lone tracks are searched individually. Covers and albums from MusicBrainz, lyrics from LRCLIB — all saved beside your files.")
+            }
+
+            if !library.importedRoots.isEmpty {
+                Section {
+                    ForEach(library.importedRoots, id: \.self) { root in
+                        Toggle(root, isOn: Binding(
+                            get: { !excluded.contains(root) },
+                            set: { setExcluded(root, !$0) }))
+                    }
+                } header: {
+                    Text("Search These Folders")
+                } footer: {
+                    Text("Turn a folder off to skip it during online lookups — for bootlegs, mixes or anything MusicBrainz won't have.")
+                }
+            }
+
+            Section {
+                Toggle("Show File Locations", isOn: $showFilePaths)
+                NavigationLink {
+                    SidecarLocationView()
+                } label: {
+                    LabeledContent("Metadata Location",
+                                   value: library.customSidecarFolderName ?? "Beside files")
+                }
+            } header: {
+                Text("Files")
+            }
+        }
+        .navigationTitle("Metadata")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func busyButton(_ title: String, action: @escaping () async -> Void) -> some View {
+        Button { Task { await action() } } label: {
+            HStack {
+                Text(title)
+                if library.rescanning { Spacer(); ProgressView() }
+            }
+        }
+        .disabled(library.rescanning)
     }
 }
 
