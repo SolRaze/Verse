@@ -20,9 +20,14 @@ struct VerseApp: App {
                 .environmentObject(library)
                 .environmentObject(playlists)
                 .environmentObject(coordinator)
-                // Foreground: start a Live Activity that iOS blocked while backgrounded.
+                // Foreground: reactivate the audio session (dead after a background suspend/
+                // interruption, else nothing plays until relaunch) and start a Live Activity
+                // that iOS blocked while backgrounded.
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { coordinator.player.resumeLiveActivity() }
+                    if phase == .active {
+                        coordinator.player.resumePlaybackIfNeeded()
+                        coordinator.player.resumeLiveActivity()
+                    }
                 }
         }
     }
