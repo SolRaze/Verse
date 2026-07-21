@@ -21,6 +21,23 @@ struct MetadataScraper {
         var releaseMBID: String?
     }
 
+    /// One release candidate from a MusicBrainz release search — what the finder picker shows.
+    struct AlbumCandidate: Sendable, Equatable, Identifiable {
+        var releaseMBID: String
+        var album: String
+        var artist: String
+        var year: String?
+        var trackCount: Int
+        var id: String { releaseMBID }
+    }
+
+    /// A track in a release's medium, disc-aware. Position is 1-based within its disc.
+    struct TrackInfo: Sendable, Equatable {
+        var title: String
+        var track: Int
+        var disc: Int
+    }
+
     private static let userAgent = "Verse/0.1 ( github.com/SolRaze/Verse )"
 
     /// Artist portrait via Deezer's keyless search API (MusicBrainz carries no images).
@@ -91,9 +108,76 @@ struct MetadataScraper {
                       album: parsed.album, coverImage: cover)
     }
 
+    // MARK: - Album-level (release search + tracklist)
+
+    /// Pure: a MusicBrainz release-search response -> candidates. Testable offline.
+    static func parseCandidates(_ data: Data) -> [AlbumCandidate] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let releases = root["releases"] as? [[String: Any]] else { return [] }
+        return releases.compactMap { r in
+            guard let id = r["id"] as? String, let title = r["title"] as? String else { return nil }
+            let artist = (r["artist-credit"] as? [[String: Any]])?
+                .compactMap { $0["name"] as? String }.joined() ?? ""
+            let year = (r["date"] as? String).map { String($0.prefix(4)) }
+            let count = (r["track-count"] as? Int)
+                ?? (r["media"] as? [[String: Any]])?.reduce(0) { $0 + (($1["track-count"] as? Int) ?? 0) }
+                ?? 0
+            return AlbumCandidate(releaseMBID: id, album: title, artist: artist,
+                                  year: year, trackCount: count)
+        }
+    }
+
+    /// Pure: a MusicBrainz release lookup (inc=recordings) -> ordered, disc-aware tracklist.
+    static func parseTracklist(_ data: Data) -> [TrackInfo] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let media = root["media"] as? [[String: Any]] else { return [] }
+        var out: [TrackInfo] = []
+        for (mi, medium) in media.enumerated() {
+            let disc = (medium["position"] as? Int) ?? (mi + 1)
+            for t in (medium["tracks"] as? [[String: Any]] ?? []) {
+                guard let title = t["title"] as? String else { continue }
+                out.append(TrackInfo(title: title, track: (t["position"] as? Int) ?? 0, disc: disc))
+            }
+        }
+        return out
+    }
+
+    /// Release search for the finder picker (top matches). One field per non-empty term.
+    static func albumCandidates(album: String, artist: String, limit: Int = 6) async -> [AlbumCandidate] {
+        func esc(_ s: String) -> String { s.replacingOccurrences(of: "\"", with: " ") }
+        var parts: [String] = []
+        if !album.isEmpty { parts.append("release:\"\(esc(album))\"") }
+        if !artist.isEmpty { parts.append("artist:\"\(esc(artist))\"") }
+        guard !parts.isEmpty else { return [] }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        var comps = URLComponents(string: "https://musicbrainz.org/ws/2/release")!
+        comps.queryItems = [.init(name: "query", value: parts.joined(separator: " AND ")),
+                            .init(name: "fmt", value: "json"),
+                            .init(name: "limit", value: String(limit))]
+        guard let url = comps.url, let data = await get(url) else { return [] }
+        return parseCandidates(data)
+    }
+
+    /// Full tracklist + front cover for one release. `wantCover` skips the CAA hop when not needed.
+    static func albumDetail(mbid: String, wantCover: Bool = true)
+        async -> (tracks: [TrackInfo], cover: UIImage?) {
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        var comps = URLComponents(string: "https://musicbrainz.org/ws/2/release/\(mbid)")!
+        comps.queryItems = [.init(name: "inc", value: "recordings"),
+                            .init(name: "fmt", value: "json")]
+        var tracks: [TrackInfo] = []
+        if let url = comps.url, let data = await get(url) { tracks = parseTracklist(data) }
+        var cover: UIImage?
+        if wantCover {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            cover = await coverArt(mbid: mbid)
+        }
+        return (tracks, cover)
+    }
+
     /// Cover Art Archive front image, 500px, falling back to full size on 404. Redirects to
     /// archive.org for the bytes — URLSession follows them.
-    private static func coverArt(mbid: String) async -> UIImage? {
+    static func coverArt(mbid: String) async -> UIImage? {
         for size in ["front-500", "front"] {
             guard let url = URL(string: "https://coverartarchive.org/release/\(mbid)/\(size)"),
                   let data = await get(url), let img = UIImage(data: data) else { continue }

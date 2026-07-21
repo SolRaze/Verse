@@ -45,4 +45,37 @@ final class MetadataScraperTests: XCTestCase {
     func testNoRecordingsYieldsNil() {
         XCTAssertNil(MetadataScraper.parse(Data(#"{"count":0,"recordings":[]}"#.utf8)))
     }
+
+    func testParsesReleaseCandidates() {
+        let json = """
+        {"releases":[
+          {"id":"aaaa","title":"Album One","date":"2019-05-01","track-count":10,
+           "artist-credit":[{"name":"Band"}]},
+          {"id":"bbbb","title":"Album Two","media":[{"track-count":6},{"track-count":6}]}
+        ]}
+        """
+        let cands = MetadataScraper.parseCandidates(Data(json.utf8))
+        XCTAssertEqual(cands.count, 2)
+        XCTAssertEqual(cands[0].album, "Album One")
+        XCTAssertEqual(cands[0].artist, "Band")
+        XCTAssertEqual(cands[0].year, "2019")
+        XCTAssertEqual(cands[0].trackCount, 10)
+        XCTAssertEqual(cands[1].trackCount, 12)   // summed across two discs when track-count absent
+    }
+
+    func testParsesDiscAwareTracklist() {
+        let json = """
+        {"media":[
+          {"position":1,"tracks":[
+            {"position":1,"title":"One"},{"position":2,"title":"Two"}]},
+          {"position":2,"tracks":[
+            {"position":1,"title":"Three"}]}
+        ]}
+        """
+        let tracks = MetadataScraper.parseTracklist(Data(json.utf8))
+        XCTAssertEqual(tracks.count, 3)
+        XCTAssertEqual(tracks[2].disc, 2)
+        XCTAssertEqual(tracks[2].track, 1)
+        XCTAssertEqual(tracks[0].title, "One")
+    }
 }
