@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 
 struct LibraryItem: Codable, Identifiable, Hashable {
     enum Source: Codable, Hashable {
@@ -21,6 +22,11 @@ struct LibraryItem: Codable, Identifiable, Hashable {
     /// How this track groups under Albums: its album tag, else the folder it sits in. Empty
     /// only for a loose, tagless file.
     var albumKey: String { album.isEmpty ? (folders.last ?? "") : album }
+
+    /// Position within the album, filled by the online album lookup (disc-aware). Optional so
+    /// older libraries decode cleanly; nil sorts after numbered tracks, then by title.
+    var trackNumber: Int?
+    var discNumber: Int?
 
     /// Folder path components relative to the imported root, e.g. ["Rock", "Album1"]. Empty for
     /// loose items and YouTube adds. This is the whole filesystem-style library — folders are the
@@ -61,6 +67,8 @@ struct SidecarTags: Codable {
     var album: String?
     var playCount: Int?
     var lastPlayed: Date?
+    var trackNumber: Int?
+    var discNumber: Int?
 
     static func url(besides mediaURL: URL) -> URL {
         mediaURL.deletingPathExtension()
@@ -397,49 +405,145 @@ final class LibraryStore: ObservableObject {
 
     enum OnlineMode { case both, tags, art }
 
-    /// MusicBrainz album fill + CAA hi-res cover. `force` = the user tapped a fetch button:
-    /// ignores the Online Metadata toggle and clears negative artwork markers so every
-    /// coverless track genuinely retries. `mode` narrows the pass (Settings has separate
-    /// Fetch Metadata / Fetch Artwork buttons so a failure is attributable).
+    /// Root folders the user excluded from online lookups (Settings › Metadata).
+    static func excludedFolders() -> Set<String> {
+        Set((UserDefaults.standard.string(forKey: Pref.metadataExcludedFolders) ?? "")
+            .split(separator: "\n").map(String.init))
+    }
+
+    /// Online enrichment, grouped by album (2026-07-21): a multi-track album gets ONE release
+    /// lookup — tracklist (disc/track numbers) + one hi-res cover shared across the folder —
+    /// instead of a per-song recording search. Genuine singles (a one-track group) still go
+    /// through the recording search. `force` = a Fetch button tap (bypasses the toggle, clears
+    /// negative art markers); `mode` narrows to tags or art so a failure is attributable.
     private func onlineMetadataPass(force: Bool, mode: OnlineMode = .both) async {
         guard force || UserDefaults.standard.bool(forKey: Pref.onlineMetadata) else { return }
         let wantTags = mode != .art, wantArt = mode != .tags
         let label = mode == .tags ? "Metadata" : mode == .art ? "Artwork" : "Covers & metadata"
-        let total = items.count
+        let excluded = Self.excludedFolders()
+        let eligible = items.filter {
+            guard case .file = $0.source else { return false }
+            if let root = $0.folders.first, excluded.contains(root) { return false }
+            return true
+        }
+        let groups = Dictionary(grouping: eligible, by: \.albumKey)
         var hits = 0, misses = 0, skipped = 0
-        for (n, item) in items.enumerated() {
-            guard case .file = item.source, let url = resolveURL(item) else { continue }
+        for (albumName, groupItems) in groups {
+            if groupItems.count >= 2, !albumName.isEmpty {
+                rescanStatus = "Album · \(albumName)"
+                let artist = Self.commonArtist(groupItems)
+                guard let cand = await MetadataScraper.albumCandidates(
+                          album: albumName, artist: artist).first else {
+                    misses += groupItems.count; continue
+                }
+                let detail = await MetadataScraper.albumDetail(mbid: cand.releaseMBID, wantCover: wantArt)
+                applyAlbum(candidate: cand, tracks: detail.tracks, cover: detail.cover,
+                           to: groupItems, wantTags: wantTags, wantArt: wantArt, force: force)
+                hits += groupItems.count
+            } else {
+                for item in groupItems {
+                    switch await fetchSingle(item, wantTags: wantTags, wantArt: wantArt,
+                                             force: force, label: label) {
+                    case .hit: hits += 1
+                    case .miss: misses += 1
+                    case .skip: skipped += 1
+                    }
+                }
+            }
+        }
+        lastFetchSummary = "\(label): \(hits) found, \(misses) not matched"
+            + (skipped > 0 ? ", \(skipped) already had it" : "")
+            + (hits + misses == 0 ? " — nothing needed a lookup" : "")
+    }
+
+    private enum FetchOutcome { case hit, miss, skip }
+
+    /// Single-track (or tagless-folder) lookup via MusicBrainz recording search — the pre-album
+    /// path, kept for genuine singles.
+    private func fetchSingle(_ item: LibraryItem, wantTags: Bool, wantArt: Bool,
+                             force: Bool, label: String) async -> FetchOutcome {
+        guard let url = resolveURL(item) else { return .skip }
+        var current = items.first { $0.id == item.id } ?? item
+        rescanStatus = "\(label) · \(current.title)"
+        if force, wantArt, Artwork.image(for: item.id.uuidString) == nil {
+            Artwork.invalidate(key: item.id.uuidString)
+        }
+        let needTags = wantTags && current.album.isEmpty
+        let needArt = wantArt && (force || Artwork.image(for: item.id.uuidString) == nil)
+        guard needTags || needArt else { return .skip }
+        guard let found = await MetadataScraper.lookup(
+                  title: current.title, artist: current.artist,
+                  filename: url.deletingPathExtension().lastPathComponent) else { return .miss }
+        if wantTags {
+            if current.artist.isEmpty, !found.artist.isEmpty { current.artist = found.artist }
+            if current.album.isEmpty, let a = found.album, !a.isEmpty { current.album = a }
+        }
+        if needArt, let cover = found.coverImage {
+            Artwork.invalidate(key: item.id.uuidString)
+            Artwork.store(image: cover, key: item.id.uuidString)
+            artworkVersion += 1
+        }
+        update(current)
+        return .hit
+    }
+
+    /// Most common non-empty artist in a group, the album's likely album-artist.
+    private static func commonArtist(_ items: [LibraryItem]) -> String {
+        Dictionary(grouping: items.map(\.artist).filter { !$0.isEmpty }, by: { $0 })
+            .max { $0.value.count < $1.value.count }?.key ?? ""
+    }
+
+    /// Fold a found release onto a folder of files: album name, per-track disc/track numbers
+    /// (matched by title, else positional when counts line up), and one shared cover.
+    private func applyAlbum(candidate: MetadataScraper.AlbumCandidate,
+                            tracks: [MetadataScraper.TrackInfo], cover: UIImage?,
+                            to groupItems: [LibraryItem],
+                            wantTags: Bool, wantArt: Bool, force: Bool) {
+        let files = groupItems.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        let mbTracks = tracks.sorted { ($0.disc, $0.track) < ($1.disc, $1.track) }
+        let positional = files.count == mbTracks.count
+        for (i, item) in files.enumerated() {
             var current = items.first { $0.id == item.id } ?? item
-            rescanStatus = "\(label) \(n + 1)/\(total) · \(current.title)"
-            if force, wantArt, Artwork.image(for: item.id.uuidString) == nil {
-                Artwork.invalidate(key: item.id.uuidString)
-            }
-            let needTags = wantTags && current.album.isEmpty
-            // Forced art fetch upgrades EVERY cover (CAA 500px beats a 200px embedded thumb),
-            // not just missing ones; the auto pass still only fills gaps.
-            let needArt = wantArt && (force || Artwork.image(for: item.id.uuidString) == nil)
-            guard needTags || needArt else { skipped += 1; continue }
-            guard let found = await MetadataScraper.lookup(
-                      title: current.title, artist: current.artist,
-                      filename: url.deletingPathExtension().lastPathComponent) else {
-                misses += 1
-                continue
-            }
-            hits += 1
             if wantTags {
-                if current.artist.isEmpty, !found.artist.isEmpty { current.artist = found.artist }
-                if current.album.isEmpty, let a = found.album, !a.isEmpty { current.album = a }
+                if !candidate.album.isEmpty { current.album = candidate.album }
+                if current.artist.isEmpty, !candidate.artist.isEmpty { current.artist = candidate.artist }
+                let match = matchTrack(item.title, in: mbTracks) ?? (positional ? mbTracks[i] : nil)
+                if let m = match { current.trackNumber = m.track; current.discNumber = m.disc }
             }
-            if needArt, let cover = found.coverImage {
+            let needArt = wantArt && (force || Artwork.image(for: item.id.uuidString) == nil)
+            if needArt, let cover {
                 Artwork.invalidate(key: item.id.uuidString)
                 Artwork.store(image: cover, key: item.id.uuidString)
                 artworkVersion += 1
             }
             update(current)
         }
-        lastFetchSummary = "\(label): \(hits) found, \(misses) not matched"
-            + (skipped > 0 ? ", \(skipped) already had it" : "")
-            + (hits + misses == 0 ? " — nothing needed a lookup" : "")
+    }
+
+    private func matchTrack(_ title: String, in tracks: [MetadataScraper.TrackInfo])
+        -> MetadataScraper.TrackInfo? {
+        let t = title.lowercased()
+        return tracks.first { $0.title.lowercased() == t }
+            ?? tracks.first { $0.title.lowercased().contains(t) || t.contains($0.title.lowercased()) }
+    }
+
+    /// Settings finder: apply a user-chosen release to every track of an album folder.
+    func applyAlbumCandidate(_ cand: MetadataScraper.AlbumCandidate, to albumName: String) async {
+        guard !rescanning else { return }
+        rescanning = true
+        defer { rescanning = false; rescanStatus = "" }
+        rescanStatus = "Album · \(cand.album)"
+        let groupItems = items.filter { $0.albumKey == albumName }
+        let detail = await MetadataScraper.albumDetail(mbid: cand.releaseMBID)
+        applyAlbum(candidate: cand, tracks: detail.tracks, cover: detail.cover,
+                   to: groupItems, wantTags: true, wantArt: true, force: true)
+    }
+
+    /// Settings finder: candidates for an album folder, seeded from its current tags.
+    func albumCandidates(for albumName: String) async -> [MetadataScraper.AlbumCandidate] {
+        let groupItems = items.filter { $0.albumKey == albumName }
+        return await MetadataScraper.albumCandidates(
+            album: albumName, artist: Self.commonArtist(groupItems))
     }
 
     /// LRCLIB lyrics into the cache + `.lrc` sidecars. `force` clears negative markers first
@@ -525,7 +629,8 @@ final class LibraryStore: ObservableObject {
         let tags = SidecarTags(title: item.title, artist: item.artist, liked: item.liked,
                                album: item.album.isEmpty ? nil : item.album,
                                playCount: item.playCount > 0 ? item.playCount : nil,
-                               lastPlayed: item.lastPlayed)
+                               lastPlayed: item.lastPlayed,
+                               trackNumber: item.trackNumber, discNumber: item.discNumber)
         let tagURL = tmp.appendingPathComponent(base + ".verse.json")
         if let data = try? JSONEncoder().encode(tags), (try? data.write(to: tagURL)) != nil {
             urls.append(tagURL)
@@ -703,6 +808,8 @@ final class LibraryStore: ObservableObject {
                 item.playCount = plays
                 item.lastPlayed = tags.lastPlayed
             }
+            if let t = tags.trackNumber { item.trackNumber = t }
+            if let d = tags.discNumber { item.discNumber = d }
         }
 
         items.append(item)
@@ -803,7 +910,8 @@ final class LibraryStore: ObservableObject {
         let tags = SidecarTags(title: item.title, artist: item.artist, liked: item.liked,
                                album: item.album.isEmpty ? nil : item.album,
                                playCount: item.playCount > 0 ? item.playCount : nil,
-                               lastPlayed: item.lastPlayed)
+                               lastPlayed: item.lastPlayed,
+                               trackNumber: item.trackNumber, discNumber: item.discNumber)
         // User-picked sidecar folder wins (Settings › Metadata Location).
         if let media = resolveURL(item), let (base, release) = sidecarBase(for: media) {
             defer { release() }
