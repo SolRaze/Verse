@@ -133,6 +133,9 @@ final class Player: NSObject, ObservableObject {
     private func syncNowPlaying() {
         nowPlaying.update(position: position, duration: duration, playing: isPlaying)
     }
+
+    /// Foreground hook: start a Live Activity that couldn't be created while backgrounded.
+    func resumeLiveActivity() { nowPlaying.resumeActivityIfNeeded() }
 }
 
 extension Player: VLCMediaPlayerDelegate {

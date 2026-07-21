@@ -156,6 +156,13 @@ final class NowPlaying {
     /// request and leave two activities on screen.
     private var mutatingActivity = false
 
+    /// App returned to foreground: iOS forbids STARTING a Live Activity from the background, so a
+    /// track that auto-advanced while backgrounded has none. Start it now that we're active.
+    func resumeActivityIfNeeded() {
+        guard activity == nil, track != nil, lyrics?.isSynced == true, isPlaying else { return }
+        startActivity()
+    }
+
     /// One activity per track, only when synced lyrics exist — a lyric-less track has nothing
     /// to show that the system now-playing surface doesn't already.
     /// ponytail: iOS forbids STARTING a Live Activity from the background, so a track that
