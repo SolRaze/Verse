@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import SwiftUI
 
@@ -18,8 +19,8 @@ final class Coordinator: ObservableObject {
     @Published var showPlayer = false
     @Published var busy = false
     @Published var lastError: String?
-    @Published private(set) var queue: [LibraryItem] = []
-    @Published private(set) var queueIndex = 0
+    @Published private(set) var queue: [LibraryItem] = [] { didSet { persistQueue() } }
+    @Published private(set) var queueIndex = 0 { didSet { persistQueue() } }
     @Published private(set) var isShuffled = false
     @Published var repeatMode: RepeatMode = .off
 
@@ -28,7 +29,7 @@ final class Coordinator: ObservableObject {
 
     /// Player burger "View Track" / "View Artist": lands in the Library stack. RootView flips
     /// the tab, LibraryView pushes the destination and clears this.
-    enum DeepLink: Equatable { case folder([String]), artist(String) }
+    enum DeepLink: Equatable { case folder([String]), artist(String), album(String) }
     @Published var deepLink: DeepLink?
 
     func open(_ link: DeepLink) {
@@ -62,6 +63,19 @@ final class Coordinator: ObservableObject {
         queue.indices.contains(queueIndex) ? queue[queueIndex] : nil
     }
 
+    /// Queue-sheet editing. Offsets are into `upNext` (everything past the current track).
+    func removeUpNext(at offsets: IndexSet) {
+        for o in offsets.sorted(by: >) where queue.indices.contains(queueIndex + 1 + o) {
+            queue.remove(at: queueIndex + 1 + o)
+        }
+    }
+
+    func moveUpNext(from source: IndexSet, to destination: Int) {
+        var next = upNext
+        next.move(fromOffsets: source, toOffset: destination)
+        queue = Array(queue.prefix(queueIndex + 1)) + next
+    }
+
     /// "Add to Queue > Play Next": right after the current track. Nothing playing = just play it.
     func playNext(_ item: LibraryItem) {
         guard !queue.isEmpty else { return play(item, in: [item]) }
@@ -74,9 +88,55 @@ final class Coordinator: ObservableObject {
         queue.append(item)
     }
 
+    // MARK: - Queue persistence (survives force-quit; restored paused, nothing autoplays)
+
+    private var queueFile: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("queue.json")
+    }
+    private struct SavedQueue: Codable { var items: [LibraryItem]; var index: Int }
+
+    private func persistQueue() {
+        try? JSONEncoder().encode(SavedQueue(items: queue, index: queueIndex))
+            .write(to: queueFile, options: .atomic)
+    }
+
+    // MARK: - Sleep timer (Settings › Playback)
+
+    @Published private(set) var sleepMinutes: Int?
+    private var sleepTask: Task<Void, Never>?
+
+    func setSleepTimer(minutes: Int?) {
+        sleepTask?.cancel()
+        sleepTask = nil
+        sleepMinutes = minutes
+        guard let minutes else { return }
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Double(minutes) * 60))
+            guard !Task.isCancelled else { return }
+            self?.player.pause()
+            self?.airPlayer.player.pause()
+            self?.sleepMinutes = nil
+        }
+    }
+
+    /// AirPlay video holds a security scope on its file; released on the next play or stop
+    /// (issue #7 — previously never released, one leaked handle per video).
+    private var scopedVideoURL: URL?
+    private func releaseVideoScope() {
+        scopedVideoURL?.stopAccessingSecurityScopedResource()
+        scopedVideoURL = nil
+    }
+
     init(library: LibraryStore) {
         self.library = library
         try? player.activateAudioSession()
+        if let data = try? Data(contentsOf: queueFile),
+           let saved = try? JSONDecoder().decode(SavedQueue.self, from: data),
+           !saved.items.isEmpty {
+            queue = saved.items
+            queueIndex = min(saved.index, saved.items.count - 1)
+        }
         PlaybackBridge.shared.controls = player
         player.onNext = { [weak self] in self?.advance(auto: false) }
         player.onPrevious = { [weak self] in self?.step(-1) }
@@ -204,15 +264,18 @@ final class Coordinator: ObservableObject {
                 if item.isVideo, AirPlayVideoPlayer.canAirPlay(url) {
                     engine = .airplay
                     player.stop()
-                    _ = url.startAccessingSecurityScopedResource()  // released on next load/stop
+                    releaseVideoScope()
+                    scopedVideoURL = url.startAccessingSecurityScopedResource() ? url : nil
                     airPlayer.skipSegments = []
                     airPlayer.load(url: url)
                 } else {
                     engine = .vlc
+                    releaseVideoScope()
                     airPlayer.stop()
                     player.load(
                         Player.Item(url: url, title: item.title, artist: item.artist,
-                                    artwork: Artwork.image(for: item.id.uuidString), scoped: true),
+                                    artwork: Artwork.image(for: item.id.uuidString), scoped: true,
+                                    resumeKey: item.id.uuidString),
                         lyrics: nil)
                     resolveExtras(for: item, mediaURL: url, playbackURL: url, title: item.title)
                 }
@@ -229,15 +292,23 @@ final class Coordinator: ObservableObject {
     private func resolveExtras(for item: LibraryItem, mediaURL: URL?, playbackURL: URL,
                                title: String) {
         Task {
+            // Real duration → LRCLIB's exact /api/get match beats fuzzy search (plan phase 1).
+            var duration: TimeInterval?
+            if let mediaURL {
+                duration = try? await AVURLAsset(url: mediaURL).load(.duration).seconds
+                if duration?.isFinite != true { duration = nil }
+            }
             let lyrics = await LyricsResolver.resolve(
                 mediaURL: mediaURL, title: title, artist: item.artist,
-                duration: nil, cacheKey: item.id.uuidString)
+                duration: duration, cacheKey: item.id.uuidString)
             var art: UIImage?
             if let mediaURL {
                 await Artwork.store(from: mediaURL, key: item.id.uuidString)  // lockscreen/CarPlay cover
                 art = Artwork.image(for: item.id.uuidString)
             }
             player.attach(lyrics: lyrics, artwork: art, forURL: playbackURL)
+            // In-place metadata (inbox-3): whatever the chain found lives beside the file too.
+            if lyrics != nil, case .file = item.source { library.exportLyricsSidecar(item) }
         }
     }
 

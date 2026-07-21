@@ -95,7 +95,10 @@ final class NowPlaying {
     /// Call on every player tick and on every play/pause/seek. Artwork never changes here —
     /// the real cover published by begin()/attach() stays; ticks only refresh timing (and the
     /// lyric line in the artist field when the CarPlay Lyrics toggle is on).
-    func update(position: TimeInterval, playing: Bool) {
+    /// `duration` rides the tick because VLC only knows it after playback starts — begin()
+    /// publishes 0, which left the lock screen with no scrubber or length (issue #6).
+    func update(position: TimeInterval, duration: TimeInterval = 0, playing: Bool) {
+        if duration > 0, duration != track?.duration { track?.duration = duration }
         guard let track else { return }
 
         guard let lyrics, lyrics.isSynced else {

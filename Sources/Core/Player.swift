@@ -23,7 +23,12 @@ final class Player: NSObject, ObservableObject {
         var skipSegments: [(start: TimeInterval, end: TimeInterval)] = []
         /// Set when the URL is a security-scoped bookmark resolution and must be released.
         var scoped: Bool = false
+        /// Stable id for per-track resume position (library item UUID). nil = no resume.
+        var resumeKey: String? = nil
     }
+
+    /// Saved position waiting for VLC to learn the duration; applied on the first tick.
+    private var pendingResume: TimeInterval?
 
     @Published private(set) var current: Item?
     @Published private(set) var isPlaying = false
@@ -69,6 +74,11 @@ final class Player: NSObject, ObservableObject {
 
         if item.scoped { _ = item.url.startAccessingSecurityScopedResource() }
         vlc.media = VLCMedia(url: item.url)
+        // Resume where this track was left (>10s in, applied once duration is known).
+        pendingResume = item.resumeKey.flatMap {
+            let t = UserDefaults.standard.double(forKey: "resume." + $0)
+            return t > 10 ? t : nil
+        }
 
         nowPlaying.begin(
             track: .init(title: item.title, artist: item.artist, album: item.album,
@@ -114,11 +124,14 @@ final class Player: NSObject, ObservableObject {
 
     func seek(to time: TimeInterval) {
         vlc.time = VLCTime(int: Int32(time * 1000))
+        // VLC only ticks while playing — a paused seek must move the UI (lyric highlight,
+        // scrubbers) immediately or nothing appears to happen.
+        position = time
         syncNowPlaying()
     }
 
     private func syncNowPlaying() {
-        nowPlaying.update(position: position, playing: isPlaying)
+        nowPlaying.update(position: position, duration: duration, playing: isPlaying)
     }
 }
 
@@ -127,6 +140,16 @@ extension Player: VLCMediaPlayerDelegate {
         Task { @MainActor in
             position = Double(vlc.time.intValue) / 1000
             duration = Double(vlc.media?.length.intValue ?? 0) / 1000
+
+            // Apply a saved resume once the length is known; near-the-end saves don't resume.
+            if let t = pendingResume, duration > 0 {
+                pendingResume = nil
+                if t < duration * 0.9 { seek(to: t) }
+            }
+            // Remember position for resume. ponytail: written every tick; tiny defaults write.
+            if let key = current?.resumeKey, position > 10 {
+                UserDefaults.standard.set(position, forKey: "resume." + key)
+            }
 
             // SponsorBlock: entering a segment jumps to its end. That is the whole ad-skip
             // feature. Settings can turn it off.
