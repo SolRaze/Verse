@@ -56,6 +56,10 @@ final class NowPlaying {
             commands.seek(e.positionTime)
             return .success
         }
+        // A crash or force-quit never runs end(), so last session's lyric activity is still on
+        // the Lock Screen AND still occupies ActivityKit's slot — which makes the next song's
+        // request fail silently. Clear anything left over the moment we launch.
+        Task { await endAllActivities() }
     }
 
     private var isPlaying: Bool {
@@ -148,11 +152,17 @@ final class NowPlaying {
 
     private var activity: Activity<LyricActivityAttributes>?
     private var activityState: LyricActivityAttributes.ContentState?
+    /// Guards the async end→request window so begin() and a late attach() can't both fire a
+    /// request and leave two activities on screen.
+    private var mutatingActivity = false
 
     /// One activity per track, only when synced lyrics exist — a lyric-less track has nothing
     /// to show that the system now-playing surface doesn't already.
+    /// ponytail: iOS forbids STARTING a Live Activity from the background, so a track that
+    /// auto-advances while the app is backgrounded won't get one until foreground. No API works
+    /// around that; the old activity is still ended so at least nothing stale lingers.
     private func startActivity() {
-        endActivity()
+        guard !mutatingActivity else { return }
         guard let track, let lyrics, lyrics.isSynced,
               ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         // Seed from the CURRENT position, not an empty state — otherwise a mid-song attach()
@@ -160,10 +170,16 @@ final class NowPlaying {
         let pos = center.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime]
             as? TimeInterval ?? 0
         let state = contentState(index: lyrics.lineIndex(at: pos), playing: isPlaying)
+        let attrs = LyricActivityAttributes(title: track.title, artist: track.artist)
         activityState = state
-        activity = try? Activity.request(
-            attributes: LyricActivityAttributes(title: track.title, artist: track.artist),
-            content: .init(state: state, staleDate: nil))
+        mutatingActivity = true
+        // End every existing activity FIRST and await it, so the slot is free — requesting while
+        // the previous one is still ending is what left new songs with no activity.
+        Task {
+            await endAllActivities()
+            activity = try? Activity.request(attributes: attrs, content: .init(state: state, staleDate: nil))
+            mutatingActivity = false
+        }
     }
 
     /// Build the three-line window (previous/current/next) for a line index. Shared by the
@@ -190,12 +206,18 @@ final class NowPlaying {
     }
 
     private func endActivity() {
-        if let activity {
-            let sent = Sent(activity)
-            Task { await sent.value.end(nil, dismissalPolicy: .immediate) }
-        }
-        activity = nil
         activityState = nil
+        Task { await endAllActivities() }
+    }
+
+    /// End the tracked activity AND any orphan of this type — awaitable so callers can free the
+    /// ActivityKit slot before requesting a replacement.
+    private func endAllActivities() async {
+        activity = nil
+        for a in Activity<LyricActivityAttributes>.activities {
+            let sent = Sent(a)
+            await sent.value.end(nil, dismissalPolicy: .immediate)
+        }
     }
 
     /// ActivityKit's Activity is thread-safe but not declared Sendable, so awaiting its async
