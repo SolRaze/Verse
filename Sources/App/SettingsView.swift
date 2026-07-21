@@ -296,19 +296,6 @@ struct SettingsView: View {
             }
     }
 
-    /// A row button that shows one shared spinner while any library job runs.
-    private func busyButton(_ title: String, action: @escaping () async -> Void) -> some View {
-        Button {
-            Task { await action() }
-        } label: {
-            HStack {
-                Text(title)
-                if library.rescanning { Spacer(); ProgressView() }
-            }
-        }
-        .disabled(library.rescanning)
-    }
-
     private func clearCaches() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         for sub in ["lyrics", "artwork", "waveform"] {

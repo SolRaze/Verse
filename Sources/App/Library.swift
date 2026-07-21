@@ -501,14 +501,13 @@ final class LibraryStore: ObservableObject {
                             wantTags: Bool, wantArt: Bool, force: Bool) {
         let files = groupItems.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         let mbTracks = tracks.sorted { ($0.disc, $0.track) < ($1.disc, $1.track) }
-        let positional = files.count == mbTracks.count
+        let matches = MetadataScraper.matchTracklist(fileTitles: files.map(\.title), tracks: mbTracks)
         for (i, item) in files.enumerated() {
             var current = items.first { $0.id == item.id } ?? item
             if wantTags {
                 if !candidate.album.isEmpty { current.album = candidate.album }
                 if current.artist.isEmpty, !candidate.artist.isEmpty { current.artist = candidate.artist }
-                let match = matchTrack(item.title, in: mbTracks) ?? (positional ? mbTracks[i] : nil)
-                if let m = match { current.trackNumber = m.track; current.discNumber = m.disc }
+                if let m = matches[i] { current.trackNumber = m.track; current.discNumber = m.disc }
             }
             let needArt = wantArt && (force || Artwork.image(for: item.id.uuidString) == nil)
             if needArt, let cover {
@@ -518,13 +517,6 @@ final class LibraryStore: ObservableObject {
             }
             update(current)
         }
-    }
-
-    private func matchTrack(_ title: String, in tracks: [MetadataScraper.TrackInfo])
-        -> MetadataScraper.TrackInfo? {
-        let t = title.lowercased()
-        return tracks.first { $0.title.lowercased() == t }
-            ?? tracks.first { $0.title.lowercased().contains(t) || t.contains($0.title.lowercased()) }
     }
 
     /// Settings finder: apply a user-chosen release to every track of an album folder.
@@ -984,55 +976,6 @@ final class LibraryStore: ObservableObject {
             .sorted { $0.playCount > $1.playCount }
             .prefix(limit)
             .map { $0 }
-    }
-
-    /// Re-read a file's embedded tags (title / artist) and cover art, and update the item
-    /// (inbox-2 "fetch metadata"). Embedded tags only — no online lookup.
-    func fetchMetadata(_ item: LibraryItem) async {
-        guard case .file = item.source, let url = resolveURL(item) else { return }
-        let scoped = url.startAccessingSecurityScopedResource()
-
-        var updated = item
-        let asset = AVURLAsset(url: url)
-        if let meta = try? await asset.load(.commonMetadata) {
-            let title = try? await AVMetadataItem.metadataItems(
-                from: meta, filteredByIdentifier: .commonIdentifierTitle).first?.load(.stringValue)
-            let artist = try? await AVMetadataItem.metadataItems(
-                from: meta, filteredByIdentifier: .commonIdentifierArtist).first?.load(.stringValue)
-            let album = try? await AVMetadataItem.metadataItems(
-                from: meta, filteredByIdentifier: .commonIdentifierAlbumName).first?.load(.stringValue)
-            if let t = title ?? nil, !t.isEmpty { updated.title = t }
-            if let a = artist ?? nil, !a.isEmpty { updated.artist = a }
-            if let a = album ?? nil, !a.isEmpty { updated.album = a }
-        }
-        Artwork.invalidate(key: item.id.uuidString)  // bypass the no-art marker on manual re-fetch
-        await Artwork.store(from: url, key: item.id.uuidString)
-        let filename = url.deletingPathExtension().lastPathComponent
-        if scoped { url.stopAccessingSecurityScopedResource() }
-
-        // Online lookup is opt-in — no network unless the user turned it on (Settings > Metadata).
-        // Embedded tags read first (above) seed the query; the scraper fills/overwrites them and
-        // hands back a hi-res cover to replace the embedded thumbnail.
-        if UserDefaults.standard.bool(forKey: Pref.onlineMetadata),
-           let found = await MetadataScraper.lookup(
-               title: updated.title, artist: updated.artist, filename: filename) {
-            if !found.title.isEmpty { updated.title = found.title }
-            if !found.artist.isEmpty { updated.artist = found.artist }
-            if let a = found.album, !a.isEmpty { updated.album = a }
-            if let cover = found.coverImage {
-                Artwork.invalidate(key: item.id.uuidString)
-                Artwork.store(image: cover, key: item.id.uuidString)
-            }
-        }
-        update(updated)
-
-        // Lyrics ride the same fetch: LRCLIB (negative-cache aware) → cache → .lrc sidecar.
-        let lyricScope = url.startAccessingSecurityScopedResource()
-        _ = await LyricsResolver.resolve(mediaURL: url, title: updated.title,
-                                         artist: updated.artist, duration: nil,
-                                         cacheKey: item.id.uuidString)
-        if lyricScope { url.stopAccessingSecurityScopedResource() }
-        exportLyricsSidecar(updated)
     }
 
     func remove(_ item: LibraryItem) {
