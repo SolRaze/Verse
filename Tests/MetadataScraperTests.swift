@@ -63,6 +63,38 @@ final class MetadataScraperTests: XCTestCase {
         XCTAssertEqual(cands[1].trackCount, 12)   // summed across two discs when track-count absent
     }
 
+    // MARK: - matchTracklist (folder files -> release tracklist)
+
+    private func ti(_ title: String, _ track: Int, _ disc: Int = 1) -> MetadataScraper.TrackInfo {
+        MetadataScraper.TrackInfo(title: title, track: track, disc: disc)
+    }
+
+    func testMatchByTitleThenPositional() {
+        let tracks = [ti("Intro", 1), ti("Verse", 2), ti("Outro", 3)]
+        // Exact/substring titles resolve; the odd one out falls to the remaining slot.
+        let m = MetadataScraper.matchTracklist(fileTitles: ["outro", "Intro (Live)", "mystery"],
+                                               tracks: tracks)
+        XCTAssertEqual(m[0]?.track, 3)   // "outro" == "Outro"
+        XCTAssertEqual(m[1]?.track, 1)   // "Intro (Live)" contains "Intro"
+        XCTAssertEqual(m[2]?.track, 2)   // positional fill: only "Verse" left, counts match
+    }
+
+    func testDuplicateTitlesDoNotCollide() {
+        // Two files literally named the same must not both take track 1.
+        let tracks = [ti("Skit", 1), ti("Skit", 2)]
+        let m = MetadataScraper.matchTracklist(fileTitles: ["Skit", "Skit"], tracks: tracks)
+        XCTAssertEqual(Set(m.compactMap { $0?.track }), [1, 2])
+    }
+
+    func testNoPositionalFillWhenCountsDiffer() {
+        // 3 files, 2 tracks: unmatched files stay nil rather than grabbing a wrong track.
+        let tracks = [ti("A", 1), ti("B", 2)]
+        let m = MetadataScraper.matchTracklist(fileTitles: ["A", "X", "Y"], tracks: tracks)
+        XCTAssertEqual(m[0]?.track, 1)
+        XCTAssertNil(m[1])
+        XCTAssertNil(m[2])
+    }
+
     func testParsesDiscAwareTracklist() {
         let json = """
         {"media":[

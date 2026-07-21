@@ -198,6 +198,7 @@ final class Coordinator: ObservableObject {
             return LibraryItem(title: entry.title, artist: entry.artist,
                                source: .youtube(watchURL: url), isVideo: video)
         }
+        guard !queue.isEmpty else { return }   // empty playlist: queue[-1] would crash
         queueIndex = min(index, queue.count - 1)
         Task { await start(queue[queueIndex]) }
     }

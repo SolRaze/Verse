@@ -127,6 +127,28 @@ struct MetadataScraper {
         }
     }
 
+    /// Pure: match a folder's files (by title) to a release's tracklist. Each MB track is
+    /// consumed once, so two files with the SAME title don't both grab the first match and end
+    /// up with the same track number. Title match (exact, then substring) first; when the counts
+    /// line up, any still-unmatched file takes the next remaining track in order. `fileTitles`
+    /// and `tracks` are expected pre-sorted by the caller (files by title, tracks by disc/track).
+    static func matchTracklist(fileTitles: [String], tracks: [TrackInfo]) -> [TrackInfo?] {
+        var remaining = tracks
+        var result = [TrackInfo?](repeating: nil, count: fileTitles.count)
+        for (i, title) in fileTitles.enumerated() {
+            let t = title.lowercased()
+            let idx = remaining.firstIndex { $0.title.lowercased() == t }
+                ?? remaining.firstIndex { $0.title.lowercased().contains(t) || t.contains($0.title.lowercased()) }
+            if let idx { result[i] = remaining.remove(at: idx) }
+        }
+        if fileTitles.count == tracks.count {
+            for i in result.indices where result[i] == nil && !remaining.isEmpty {
+                result[i] = remaining.removeFirst()
+            }
+        }
+        return result
+    }
+
     /// Pure: a MusicBrainz release lookup (inc=recordings) -> ordered, disc-aware tracklist.
     static func parseTracklist(_ data: Data) -> [TrackInfo] {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
