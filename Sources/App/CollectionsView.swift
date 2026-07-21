@@ -418,10 +418,18 @@ struct AlbumPage: View {
     @EnvironmentObject var coordinator: Coordinator
     let album: AlbumRef
     @State private var infoItem: LibraryItem?
+    @State private var finding = false
 
     private var tracks: [LibraryItem] {
+        // Disc/track order once the online lookup has filled numbers; numeric-aware title order
+        // (nil numbers sort last) before that.
         library.items.filter { $0.albumKey == album.name }
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .sorted {
+                let a = ($0.discNumber ?? 1, $0.trackNumber ?? .max)
+                let b = ($1.discNumber ?? 1, $1.trackNumber ?? .max)
+                if a != b { return a < b }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
     }
 
     private var artistLine: String {
@@ -479,7 +487,7 @@ struct AlbumPage: View {
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { i, item in
                     Button { coordinator.play(item, in: tracks) } label: {
                         HStack(spacing: 10) {
-                            Text("\(i + 1)")
+                            Text("\(item.trackNumber ?? i + 1)")
                                 .font(.footnote).foregroundStyle(.secondary)
                                 .frame(width: 22, alignment: .trailing).monospacedDigit()
                             Text(item.title).lineLimit(1)
@@ -500,6 +508,71 @@ struct AlbumPage: View {
         .listStyle(.plain)
         .navigationTitle(album.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { finding = true } label: { Image(systemName: "text.magnifyingglass") }
+                    .disabled(library.rescanning)
+            }
+        }
+        .sheet(isPresented: $finding) {
+            AlbumFinderSheet(albumName: album.name)
+        }
         .modifier(TrackSheets(infoItem: $infoItem))
+    }
+}
+
+/// "Find better metadata" for one album: lists MusicBrainz release candidates so the user picks
+/// the right pressing (the auto pass takes the top hit; this is the manual override for wrong or
+/// missing matches). Applying pulls that release's tracklist + cover onto the whole folder.
+struct AlbumFinderSheet: View {
+    @EnvironmentObject var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    let albumName: String
+    @State private var candidates: [MetadataScraper.AlbumCandidate] = []
+    @State private var loading = true
+    @State private var applying: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if loading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowSeparator(.hidden)
+                } else if candidates.isEmpty {
+                    ContentUnavailableView("No matches", systemImage: "questionmark.circle",
+                                           description: Text("MusicBrainz had nothing for “\(albumName)”. Fix the album or artist tag and try again."))
+                }
+                ForEach(candidates) { c in
+                    Button {
+                        applying = c.id
+                        Task {
+                            await library.applyAlbumCandidate(c, to: albumName)
+                            dismiss()
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(c.album).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text([c.artist, c.year, "\(c.trackCount) tracks"]
+                                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .tint(.primary)
+                    .disabled(applying != nil)
+                    .overlay(alignment: .trailing) {
+                        if applying == c.id { ProgressView() }
+                    }
+                }
+            }
+            .navigationTitle("Find Metadata")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+        }
+        .task {
+            candidates = await library.albumCandidates(for: albumName)
+            loading = false
+        }
     }
 }
