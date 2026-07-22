@@ -15,8 +15,9 @@ enum CreateFeature: String, CaseIterable, Identifiable {
     var icon: String { switch self { case .ipod: "opticaldisc" } }
 }
 
-/// The Create tab: a 4-column grid of resizable glass-pill widgets. The + menu (top right) adds a
-/// feature; drag a tile's bottom-right handle to resize; hold to remove. Layout persists.
+/// The Deck: a 4-column grid of resizable glass-pill widgets (renamed from "Create", #7). The +
+/// menu (top right) adds a feature; hold a tile to enter edit mode, then drag the right-edge
+/// bumper to resize or tap the minus to remove. Layout persists.
 struct CreatePage: View {
     @EnvironmentObject var coordinator: Coordinator
     @Environment(\.dismiss) private var dismiss
@@ -24,6 +25,7 @@ struct CreatePage: View {
     @State private var tiles: [CreateTile] = []
     @State private var showIPod = false
     @State private var showAdd = false
+    @State private var editing = false      // #8: resize/remove only in edit mode
 
     private let gap: CGFloat = 12
     private let pad: CGFloat = 16
@@ -36,7 +38,7 @@ struct CreatePage: View {
                     if tiles.isEmpty {
                         ContentUnavailableView(
                             "Nothing added", systemImage: "square.grid.2x2",
-                            description: Text("Tap + to add a widget. Drag its corner to resize, hold to remove."))
+                            description: Text("Tap + to add a widget. Hold a tile to edit — drag its edge bumper to resize, tap minus to remove."))
                             .padding(.top, 60)
                     } else {
                         VStack(alignment: .leading, spacing: gap) {
@@ -51,11 +53,15 @@ struct CreatePage: View {
                     }
                 }
             }
-            .navigationTitle("Create")
+            .navigationTitle("Deck")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showAdd = true } label: { Image(systemName: "plus") }
+                    if editing {
+                        Button("Done") { withAnimation(.snappy) { editing = false } }
+                    } else {
+                        Button { showAdd = true } label: { Image(systemName: "plus") }
+                    }
                 }
             }
             .sheet(isPresented: $showAdd) {
@@ -96,19 +102,38 @@ struct CreatePage: View {
     @ViewBuilder private func tileView(_ tile: CreateTile, colW: CGFloat) -> some View {
         let feature = CreateFeature(rawValue: tile.feature)
         let sz = size(tile, colW: colW)
-        ZStack(alignment: .bottomTrailing) {
-            WidgetBubble(title: feature?.rawValue ?? tile.feature, size: sz)
-                .onTapGesture { if feature == .ipod { showIPod = true } }
-                .contextMenu {
-                    Button(role: .destructive) { remove(tile) } label: {
-                        Label("Remove", systemImage: "trash")
-                    }
-                }
-            ResizeHandle(colStep: colW + gap, rowStep: colW + gap) { dCols, dRows in
-                resize(tile, dCols: dCols, dRows: dRows)
+        // #8: at 1x1 the tile is just its icon; widen/tall and the name text appears.
+        let iconOnly = tile.cols == 1 && tile.rows == 1
+        WidgetBubble(title: feature?.rawValue ?? tile.feature,
+                     icon: feature?.icon, iconOnly: iconOnly, size: sz)
+            // Tap launches the feature only when not editing; hold enters edit mode (#8).
+            .onTapGesture {
+                guard !editing else { return }
+                if feature == .ipod { showIPod = true }
             }
-            .padding(6)
-        }
+            .onLongPressGesture(minimumDuration: 0.4) {
+                withAnimation(.snappy) { editing = true }
+            }
+            .overlay(alignment: .topLeading) {
+                if editing {
+                    Button { remove(tile) } label: {
+                        Image(systemName: "minus")
+                            .font(.caption2.weight(.bold)).foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(4)
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if editing {
+                    ResizeBumper(colStep: colW + gap, rowStep: colW + gap) { dCols, dRows in
+                        resize(tile, dCols: dCols, dRows: dRows)
+                    }
+                    .padding(.trailing, 4)
+                }
+            }
     }
 
     // MARK: mutations
@@ -139,6 +164,8 @@ struct CreatePage: View {
 /// rounded square; widen it and the corner radius grows to a pill (Control-Center-style shapes).
 struct WidgetBubble: View {
     let title: String
+    var icon: String? = nil
+    var iconOnly: Bool = false      // 1x1 tile → glyph instead of the name (#8)
     let size: CGSize
 
     var body: some View {
@@ -146,14 +173,21 @@ struct WidgetBubble: View {
             ? size.height / 2                              // wide → pill
             : min(size.width, size.height) * 0.28          // square-ish → rounded square
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        Text(title)
-            .font(.subheadline.weight(.semibold))
-            .multilineTextAlignment(.center)
-            .minimumScaleFactor(0.7)
-            .padding(10)
-            .frame(width: size.width, height: size.height)
-            .glassEffect(.regular, in: shape)
-            .overlay { shape.strokeBorder(.white.opacity(0.18), lineWidth: 1) }
+        Group {
+            if iconOnly, let icon {
+                Image(systemName: icon)
+                    .font(.title2).foregroundStyle(.white)
+            } else {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .padding(10)
+        .frame(width: size.width, height: size.height)
+        .glassEffect(.regular, in: shape)
+        .overlay { shape.strokeBorder(.white.opacity(0.18), lineWidth: 1) }
     }
 }
 
@@ -189,18 +223,20 @@ struct AddWidgetSheet: View {
     }
 }
 
-/// Bottom-right drag handle: translation snaps to whole grid steps and commits on release.
+/// Right-edge resize bumper: a glass capsule grip (#9, replaces the corner arrow icon). Drag
+/// snaps to whole grid steps and commits on release.
 /// ponytail: commit-on-release only, no live preview — add one if resizing feels blind.
-struct ResizeHandle: View {
+struct ResizeBumper: View {
     let colStep: CGFloat
     let rowStep: CGFloat
     let onCommit: (Int, Int) -> Void
 
     var body: some View {
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.caption2).foregroundStyle(.secondary)
-            .frame(width: 28, height: 28)
-            .background(.ultraThinMaterial, in: Circle())
+        Color.clear
+            .frame(width: 11, height: 40)
+            .glassEffect(.regular.interactive(), in: Capsule())
+            .overlay { Capsule().strokeBorder(.white.opacity(0.3), lineWidth: 1) }
+            .contentShape(Rectangle().inset(by: -10))
             .gesture(DragGesture()
                 .onEnded { v in
                     onCommit(Int((v.translation.width / colStep).rounded()),
