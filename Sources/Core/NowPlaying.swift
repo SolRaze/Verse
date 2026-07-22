@@ -85,7 +85,7 @@ final class NowPlaying {
         }
         if let lyrics {
             self.lyrics = lyrics
-            if activity == nil { startActivity() }
+            if !activityIsLive { startActivity() }
         }
     }
 
@@ -159,8 +159,16 @@ final class NowPlaying {
     /// App returned to foreground: iOS forbids STARTING a Live Activity from the background, so a
     /// track that auto-advanced while backgrounded has none. Start it now that we're active.
     func resumeActivityIfNeeded() {
-        guard activity == nil, track != nil, lyrics?.isSynced == true, isPlaying else { return }
+        guard !activityIsLive, track != nil, lyrics?.isSynced == true, isPlaying else { return }
         startActivity()
+    }
+
+    /// True only while our activity is actually on screen. After the user swipes it away it goes
+    /// `.dismissed` (or `.ended`) but our reference lingers — treating that as "still live" is why
+    /// the next song never got one, so callers gate on this, not `activity != nil`.
+    private var activityIsLive: Bool {
+        if let activity, activity.activityState == .active { return true }
+        return false
     }
 
     /// One activity per track, only when synced lyrics exist — a lyric-less track has nothing

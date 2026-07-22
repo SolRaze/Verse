@@ -104,7 +104,9 @@ final class Player: NSObject, ObservableObject {
         }
     }
 
-    func load(_ item: Item, lyrics: Lyrics?) {
+    /// `autoplay: false` loads the track paused — used to restore the last-playing item into Now
+    /// Playing on launch without starting audio or counting a play.
+    func load(_ item: Item, lyrics: Lyrics?, autoplay: Bool = true) {
         stop()
         current = item
         self.lyrics = lyrics
@@ -121,7 +123,7 @@ final class Player: NSObject, ObservableObject {
             track: .init(title: item.title, artist: item.artist, album: item.album,
                          duration: 0, artwork: item.artwork),
             lyrics: lyrics)
-        play()
+        if autoplay { play() } else { intendedPlaying = false }
         snapshot()
     }
 

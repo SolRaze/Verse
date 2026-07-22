@@ -74,10 +74,6 @@ struct LibraryView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if editMode == .active {
                         Button("Done") { editMode = .inactive; selection = [] }
-                    } else {
-                        NavigationLink { SettingsView(embedded: true) } label: {
-                            Image(systemName: "gearshape")
-                        }
                     }
                 }
                 // One menu, not two: the import (+) and options (burger) menus are folded
@@ -105,6 +101,10 @@ struct LibraryView: View {
                             Label("New Folder", systemImage: "folder.badge.plus")
                         }
                         SortMenu()
+                        Divider()
+                        NavigationLink { SettingsView(embedded: true) } label: {
+                            Label("Settings", systemImage: "gearshape")
+                        }
                     } label: {
                         // Bare dots, no circle (inbox-2).
                         Image(systemName: "ellipsis")

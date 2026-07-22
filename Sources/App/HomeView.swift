@@ -1,78 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// Toggles on a 3D Touch deep press where the hardware has it, else a firm long-press (Haptic
-/// Touch) — iPhone 11+ and the 17e dropped force hardware, so a pure force gesture would be inert
-/// there. The recognizer rides the SwiftUI host's superview (added simultaneously) so normal taps
-/// and scrolling keep working underneath.
-struct DeepPressToggle: UIViewRepresentable {
-    let action: () -> Void
-
-    func makeUIView(context: Context) -> UIView {
-        let v = UIView()
-        v.isUserInteractionEnabled = false
-        DispatchQueue.main.async {
-            guard let sup = v.superview, context.coordinator.installed == false else { return }
-            let g = DeepPressRecognizer(target: context.coordinator, action: #selector(Coordinator.fire(_:)))
-            g.delegate = context.coordinator
-            sup.addGestureRecognizer(g)
-            context.coordinator.installed = true
-        }
-        return v
-    }
-
-    func updateUIView(_ v: UIView, context: Context) { context.coordinator.action = action }
-    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var action: () -> Void
-        var installed = false
-        init(action: @escaping () -> Void) { self.action = action }
-        @objc func fire(_ g: UIGestureRecognizer) { if g.state == .ended { action() } }
-        // Ride alongside the scroll view's and rows' own recognizers.
-        func gestureRecognizer(_ g: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
-    }
-}
-
-/// Fires once when the touch crosses a force threshold (real 3D Touch) or, on force-less
-/// hardware, after a firm hold that hasn't moved (Haptic Touch equivalent).
-final class DeepPressRecognizer: UIGestureRecognizer {
-    private let forceThreshold: CGFloat = 0.75
-    private var forceCapable = false
-    private var start: CGPoint = .zero
-    private var timer: Timer?
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        forceCapable = view?.traitCollection.forceTouchCapability == .available
-        start = touches.first?.location(in: view) ?? .zero
-        if !forceCapable {
-            timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-                self?.state = .ended
-            }
-        }
-    }
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let t = touches.first else { return }
-        // A drag is a scroll, not a press — bail so the list can take it.
-        if hypot(t.location(in: view).x - start.x, t.location(in: view).y - start.y) > 12 {
-            fail(); return
-        }
-        if forceCapable, t.maximumPossibleForce > 0,
-           t.force / t.maximumPossibleForce >= forceThreshold { state = .ended }
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        timer?.invalidate()
-        if state != .ended { state = .failed }
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { fail() }
-    override func reset() { timer?.invalidate(); timer = nil }
-    private func fail() { timer?.invalidate(); state = .failed }
-}
-
 /// The landing tab: a big `Music` title, search under it, then the smart shelves — playlists,
 /// most-played albums, most-played tracks. Browsing and importing live in the Library tab.
 ///
@@ -235,12 +163,16 @@ struct HomeView: View {
             .navigationDestination(for: RemotePlaylist.self) { pl in
                 PlaylistDetailView(playlist: pl)
             }
-            // Editing toggles with a 3D Touch / firm press anywhere (holding a shelf still works
-            // and adds per-shelf Move/Remove).
-            .background(DeepPressToggle {
-                withAnimation(.snappy) { editingHome.toggle() }
-                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-            })
+            // ponytail: an explicit Edit button (below) drives edit mode for now — the gesture
+            // versions (firm-press / hold) fought the tiles' own taps. A non-blocking gesture is
+            // planned (see plans/ipod-and-home-edit.md).
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(editingHome ? "Done" : "Edit") {
+                        withAnimation(.snappy) { editingHome.toggle() }
+                    }
+                }
+            }
             .overlay { emptyState }
             // Hidden Create page. Locked: a triple-tap on the title strip unlocks it (with a
             // brief confirmation). Unlocked: a right-swipe from the left edge opens it.
