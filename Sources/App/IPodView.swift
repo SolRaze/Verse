@@ -9,6 +9,13 @@ struct IPodView: View {
     @EnvironmentObject var coordinator: Coordinator
     @ObservedObject var player: Player
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(Pref.ipodWheelColour) private var wheelHex = ""
+    @AppStorage(Pref.ipodScreenColour) private var screenHex = ""
+
+    private var wheelColour: Color { wheelHex.isEmpty ? Color(white: 0.85) : Pref.color(for: wheelHex) }
+    private var screenColour: Color {
+        screenHex.isEmpty ? Color(red: 0.78, green: 0.85, blue: 0.78) : Pref.color(for: screenHex)
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -45,14 +52,14 @@ struct IPodView: View {
         .padding(14)
         .frame(maxWidth: .infinity)
         .aspectRatio(4 / 3, contentMode: .fit)
-        .background(Color(red: 0.78, green: 0.85, blue: 0.78))   // greenish LCD
+        .background(screenColour)                                // LCD (Settings › iPod Mode)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .shadow(radius: 1, y: 1)
     }
 
     private var wheel: some View {
         ZStack {
-            Circle().fill(Color(white: 0.85)).frame(width: 260, height: 260)
+            Circle().fill(wheelColour).frame(width: 260, height: 260)
                 .shadow(radius: 2, y: 1)
             VStack {
                 Button("MENU") { dismiss() }
