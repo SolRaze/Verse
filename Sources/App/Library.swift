@@ -547,6 +547,14 @@ final class LibraryStore: ObservableObject {
         artworkVersion += 1
     }
 
+    /// The albumKey of the most recently played track library-wide — the only album that still
+    /// gets a Resume button (#5). Empty key (loose tracks) matches no album, so no Resume shows.
+    var mostRecentAlbumKey: String? {
+        items.filter { $0.lastPlayed != nil }
+            .max { ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast) }?
+            .albumKey
+    }
+
     /// Settings finder: candidates for an album folder, seeded from its current tags.
     func albumCandidates(for albumName: String) async -> [MetadataScraper.AlbumCandidate] {
         let groupItems = items.filter { $0.albumKey == albumName }
