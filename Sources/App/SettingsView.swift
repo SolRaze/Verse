@@ -223,17 +223,10 @@ struct SettingsView: View {
 
                 Section {
                     Toggle("SponsorBlock", isOn: $sponsorBlock)
-                    Picker("Sleep Timer", selection: Binding(
-                        get: { coordinator.sleepMinutes ?? 0 },
-                        set: { coordinator.setSleepTimer(minutes: $0 == 0 ? nil : $0) }
-                    )) {
-                        Text("Off").tag(0)
-                        ForEach([15, 30, 45, 60, 90], id: \.self) { Text("\($0) min").tag($0) }
-                    }
                 } header: {
                     Text("Playback")
                 } footer: {
-                    Text("SponsorBlock skips community-flagged sponsor segments in YouTube streams. Sleep Timer pauses playback after the chosen time.")
+                    Text("SponsorBlock skips community-flagged sponsor segments in YouTube streams. The sleep timer moved to the player's moon icon.")
                 }
 
                 Section {

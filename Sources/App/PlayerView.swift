@@ -165,7 +165,7 @@ private struct NowPlayingPane: View {
         .padding(.top, 12)
     }
 
-    /// Apple Music's bottom row: lyrics left, AirPlay center, queue right.
+    /// Apple Music's bottom row: lyrics, sleep timer, AirPlay, queue.
     private var bottomRow: some View {
         HStack {
             Button { withAnimation(.snappy) { showLyrics = true } } label: {
@@ -175,6 +175,8 @@ private struct NowPlayingPane: View {
             }
             .disabled(!hasLyrics)
             Spacer()
+            sleepMenu
+            Spacer()
             AirPlayButton().frame(width: 34, height: 34)
             Spacer()
             Button { showQueue = true } label: {
@@ -183,8 +185,27 @@ private struct NowPlayingPane: View {
                     .foregroundStyle(.white)
             }
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, 32)
         .padding(.top, 6)
+    }
+
+    /// Sleep timer (moved off Settings): a moon that fills while a timer is running; the menu shows
+    /// the remaining minutes and lets you change or cancel it.
+    private var sleepMenu: some View {
+        Menu {
+            if let m = coordinator.sleepMinutes {
+                Text("~\(m) min left")
+                Button("Cancel Timer") { coordinator.setSleepTimer(minutes: nil) }
+                Divider()
+            }
+            ForEach([15, 30, 45, 60, 90], id: \.self) { m in
+                Button("\(m) min") { coordinator.setSleepTimer(minutes: m) }
+            }
+        } label: {
+            Image(systemName: coordinator.sleepMinutes != nil ? "moon.fill" : "moon")
+                .font(.title3)
+                .foregroundStyle(coordinator.sleepMinutes != nil ? .white : .white.opacity(0.6))
+        }
     }
 
     private var scrubber: some View {
