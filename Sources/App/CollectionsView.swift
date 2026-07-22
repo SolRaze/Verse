@@ -277,7 +277,7 @@ struct LocalPlaylistPage: View {
                             .frame(maxWidth: .infinity).padding(.vertical, 8)
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .disabled(tracks.isEmpty)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -381,7 +381,7 @@ struct ArtistPage: View {
                                 .frame(maxWidth: .infinity).padding(.vertical, 8)
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                 }
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
@@ -456,6 +456,12 @@ struct AlbumPage: View {
         return names.count == 1 ? names[0] : names.isEmpty ? "" : "Various Artists"
     }
 
+    /// The album's most recently played track, if any has been played — the Resume target.
+    private func lastPlayed(_ tracks: [LibraryItem]) -> LibraryItem? {
+        tracks.filter { $0.lastPlayed != nil }
+            .max { ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast) }
+    }
+
     var body: some View {
         let tracks = self.tracks
         List {
@@ -496,7 +502,16 @@ struct AlbumPage: View {
                                 .frame(maxWidth: .infinity).padding(.vertical, 8)
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
+
+                    // Resume: pick up the album's most-recently-played track at its saved spot.
+                    if let last = lastPlayed(tracks) {
+                        Button { coordinator.play(last, in: tracks) } label: {
+                            Label("Resume \(last.title)", systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity).padding(.vertical, 8).lineLimit(1)
+                        }
+                        .buttonStyle(.glass)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)

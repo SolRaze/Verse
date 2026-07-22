@@ -136,11 +136,29 @@ final class Coordinator: ObservableObject {
            !saved.items.isEmpty {
             queue = saved.items
             queueIndex = min(saved.index, saved.items.count - 1)
+            primeRestored()
         }
         PlaybackBridge.shared.controls = player
         player.onNext = { [weak self] in self?.advance(auto: false) }
         player.onPrevious = { [weak self] in self?.step(-1) }
         player.onFinished = { [weak self] in self?.advance(auto: true) }
+    }
+
+    /// Launch restore: show the last-playing track in Now Playing (mini-player, lock screen) and
+    /// load it paused at its saved position, so the app opens where it left off. Files only —
+    /// re-loading a YouTube stream would need a network fetch on cold start. No play is counted.
+    private func primeRestored() {
+        guard queue.indices.contains(queueIndex) else { return }
+        let item = queue[queueIndex]
+        nowTitle = item.title
+        nowArtist = item.artist
+        guard case .file = item.source, let url = library.resolveURL(item) else { return }
+        engine = .vlc
+        player.load(Player.Item(url: url, title: item.title, artist: item.artist,
+                                album: item.album,
+                                artwork: Artwork.image(for: item.id.uuidString),
+                                scoped: true, resumeKey: item.id.uuidString),
+                    lyrics: nil, autoplay: false)
     }
 
     func toggleShuffle() {
