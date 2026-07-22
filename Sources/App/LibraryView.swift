@@ -21,6 +21,7 @@ struct LibraryView: View {
     @State private var selection = Set<UUID>()
     @State private var editMode: EditMode = .inactive
     @State private var path = NavigationPath()
+    @State private var showHomeEditor = false
 
     /// The link kinds the + menu offers. `host` seeds a hint; `addLink` still routes by URL.
     enum LinkSource: String, Identifiable {
@@ -52,6 +53,9 @@ struct LibraryView: View {
             // Plain, edge-to-edge, hairline separators inset under the label — 1:1 with
             // `Reference/music-library.png` (no grouped cards).
             .listStyle(.plain)
+            // #11: tighten the top collection rows to ~28pt. Taller rows (folders, recently-added
+            // thumbs) keep their natural height; only the text-only collection rows shrink.
+            .environment(\.defaultMinListRowHeight, 28)
             // No search here (inbox-2) — the dock's search pill owns search now.
             // Same shape as Home: big label on top.
             .navigationTitle("Library")
@@ -96,13 +100,18 @@ struct LibraryView: View {
                             }
                         } label: { Label("Import From", systemImage: "square.and.arrow.down") }
                         Divider()
-                        Button { editMode = .active } label: { Label("Edit", systemImage: "pencil") }
+                        // #12: Library edit = multi-select for batch ops (per-song editing is a
+                        // swipe action). The old duplicate "Edit" song button is gone.
                         Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
                         Button { newFolderName = ""; newFolderParent = [] } label: {
                             Label("New Folder", systemImage: "folder.badge.plus")
                         }
                         SortMenu()
                         Divider()
+                        // #12: edit the Home screen's shelves — sits just above Settings.
+                        Button { showHomeEditor = true } label: {
+                            Label("Edit Home Screen", systemImage: "square.grid.2x2")
+                        }
                         NavigationLink { SettingsView(embedded: true) } label: {
                             Label("Settings", systemImage: "gearshape")
                         }
@@ -173,6 +182,7 @@ struct LibraryView: View {
             .sheet(item: $editing) { item in EditItemSheet(item: item) }
             .sheet(item: $infoItem) { item in InfoSheet(item: item) }
             .sheet(item: $moveRequest) { req in MoveSheet(request: req) }
+            .sheet(isPresented: $showHomeEditor) { HomeLayoutEditor() }
         }
         .preferredColorScheme(.dark)  // tint inherits from RootView (theme-aware)
     }
@@ -182,14 +192,14 @@ struct LibraryView: View {
     @ViewBuilder private var rootRows: some View {
         collectionsSection
         folderContents(path: [])          // top-level folders + loose items
-        recentlyPlayedSection             // below the rest (user request)
+        recentlyAddedSection              // below the rest (#10 — was Recently Played)
     }
 
-    /// Recently Played, expanded inline below the collections and folders — the tracks you last
-    /// listened to, with the shared hold menu.
-    @ViewBuilder private var recentlyPlayedSection: some View {
-        let recent = library.items.filter { $0.lastPlayed != nil }
-            .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+    /// Recently Added, expanded inline below the collections and folders — the tracks most
+    /// recently imported, with the shared hold menu (#10, user misspoke and wanted Added).
+    @ViewBuilder private var recentlyAddedSection: some View {
+        let recent = library.items
+            .sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
             .prefix(8).map { $0 }
         if !recent.isEmpty {
             Section {
@@ -200,7 +210,7 @@ struct LibraryView: View {
                         .contextMenu { ItemContextMenu(item: item, queue: recent, infoItem: $infoItem) }
                 }
             } header: {
-                Text("Recently Played")
+                Text("Recently Added")
             }
         }
     }
