@@ -201,24 +201,31 @@ private struct NowPlayingPane: View {
         .padding(.top, 12)
     }
 
-    /// Apple Music's bottom row: lyrics, sleep timer, AirPlay, queue.
+    /// Apple Music's bottom row: lyrics, sleep timer, AirPlay, queue — glass circles to match the
+    /// top controls (#6).
     private var bottomRow: some View {
         HStack {
             Button { withAnimation(.snappy) { showLyrics = true } } label: {
                 Image(systemName: "quote.bubble.fill")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(hasLyrics ? .white : .white.opacity(0.25))
+                    .frame(width: 34, height: 34)
+                    .glassEffect(.regular.interactive())
             }
             .disabled(!hasLyrics)
             Spacer()
             sleepMenu
             Spacer()
-            AirPlayButton().frame(width: 34, height: 34)
+            AirPlayButton()
+                .frame(width: 34, height: 34)
+                .glassEffect(.regular.interactive())
             Spacer()
             Button { showQueue = true } label: {
                 Image(systemName: "list.bullet")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .glassEffect(.regular.interactive())
             }
         }
         .padding(.horizontal, 32)
@@ -239,8 +246,10 @@ private struct NowPlayingPane: View {
             }
         } label: {
             Image(systemName: coordinator.sleepMinutes != nil ? "moon.fill" : "moon")
-                .font(.title3)
+                .font(.body)
                 .foregroundStyle(coordinator.sleepMinutes != nil ? .white : .white.opacity(0.6))
+                .frame(width: 34, height: 34)
+                .glassEffect(.regular.interactive())
         }
     }
 

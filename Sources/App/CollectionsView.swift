@@ -498,8 +498,9 @@ struct AlbumPage: View {
                     }
                     .buttonStyle(.glass)
 
-                    // Resume: pick up the album's most-recently-played track at its saved spot.
-                    if let last = lastPlayed(tracks) {
+                    // Resume: only on the single most-recently-played album (#5), picking up its
+                    // last track at the saved spot.
+                    if let last = lastPlayed(tracks), album.name == library.mostRecentAlbumKey {
                         Button { coordinator.play(last, in: tracks, resume: true) } label: {
                             Label("Resume \(last.title)", systemImage: "arrow.clockwise")
                                 .frame(maxWidth: .infinity).padding(.vertical, 8).lineLimit(1)
@@ -581,16 +582,28 @@ struct AlbumFinderSheet: View {
     @State private var candidates: [MetadataScraper.AlbumCandidate] = []
     @State private var loading = true
     @State private var applying: String?
+    @State private var query = ""
 
     var body: some View {
         NavigationStack {
             List {
+                // Always-on search (#4): retype the query when the tag-seeded lookup misses.
+                Section {
+                    HStack {
+                        TextField("Search MusicBrainz", text: $query)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .onSubmit(runSearch)
+                        Button(action: runSearch) { Image(systemName: "magnifyingglass") }
+                            .buttonStyle(.borderless)
+                            .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
                 if loading {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowSeparator(.hidden)
                 } else if candidates.isEmpty {
                     ContentUnavailableView("No matches", systemImage: "questionmark.circle",
-                                           description: Text("MusicBrainz had nothing for “\(albumName)”. Fix the album or artist tag and try again."))
+                                           description: Text("MusicBrainz had nothing for “\(query)”. Edit the search above and try again."))
                 }
                 ForEach(candidates) { c in
                     Button {
@@ -620,7 +633,18 @@ struct AlbumFinderSheet: View {
             }
         }
         .task {
+            query = albumName
             candidates = await library.albumCandidates(for: albumName)
+            loading = false
+        }
+    }
+
+    private func runSearch() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return }
+        loading = true
+        Task {
+            candidates = await library.albumCandidates(for: q)
             loading = false
         }
     }
