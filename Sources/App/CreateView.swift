@@ -23,6 +23,7 @@ struct CreatePage: View {
     @AppStorage(Pref.createTiles) private var tilesJSON = ""
     @State private var tiles: [CreateTile] = []
     @State private var showIPod = false
+    @State private var showAdd = false
 
     private let gap: CGFloat = 12
     private let pad: CGFloat = 16
@@ -54,16 +55,13 @@ struct CreatePage: View {
             .navigationTitle("Create")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        ForEach(CreateFeature.allCases) { f in
-                            Button { add(f) } label: { Label(f.rawValue, systemImage: f.icon) }
-                        }
-                    } label: { Image(systemName: "plus") }
+                    Button { showAdd = true } label: { Image(systemName: "plus") }
                 }
+            }
+            .sheet(isPresented: $showAdd) {
+                AddWidgetSheet { add($0); showAdd = false }
+                    .presentationDetents([.medium, .large])
             }
             .fullScreenCover(isPresented: $showIPod) { IPodView(player: coordinator.player) }
         }
@@ -138,6 +136,42 @@ struct CreatePage: View {
     private func persist() {
         if let data = try? JSONEncoder().encode(tiles) {
             tilesJSON = String(decoding: data, as: UTF8.self)
+        }
+    }
+}
+
+/// The + palette: previews of each widget as it will look, tap (or drag) one onto the canvas.
+/// ponytail: tap-to-add — a modal sheet can't be a drop target for the canvas beneath it, so the
+/// literal drag-from-sheet isn't possible; the preview + tap is the honest version.
+struct AddWidgetSheet: View {
+    let onPick: (CreateFeature) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let cols = [GridItem(.adaptive(minimum: 150), spacing: 16)]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: cols, spacing: 16) {
+                    ForEach(CreateFeature.allCases) { f in
+                        Button { onPick(f) } label: {
+                            VStack(spacing: 8) {
+                                Image(systemName: f.icon).font(.largeTitle)
+                                Text(f.rawValue).font(.footnote.weight(.semibold))
+                            }
+                            .frame(maxWidth: .infinity).frame(height: 110)
+                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Add Widget")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
         }
     }
 }

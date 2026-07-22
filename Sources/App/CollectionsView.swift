@@ -4,7 +4,6 @@ import SwiftUI
 /// rows at the top of Library, each opening a big-title page with a sort menu top right.
 
 enum CollectionKind: String, CaseIterable, Hashable {
-    case recentlyAdded = "Recently Added"
     case playlists = "Playlists"
     case artists = "Artists"
     case albums = "Albums"
@@ -13,7 +12,6 @@ enum CollectionKind: String, CaseIterable, Hashable {
 
     var icon: String {
         switch self {
-        case .recentlyAdded: "clock"
         case .playlists: "music.note.list"
         case .artists: "music.mic"
         case .albums: "square.stack"
@@ -86,7 +84,6 @@ struct CollectionPage: View {
     var body: some View {
         List {
             switch kind {
-            case .recentlyAdded: songRows(library.items)
             case .playlists: playlistRows
             case .artists: artistRows
             case .albums: albumRows
@@ -97,8 +94,6 @@ struct CollectionPage: View {
         .listStyle(.insetGrouped)
         .navigationTitle(kind.rawValue)
         .navigationBarTitleDisplayMode(.large)
-        // Recently Added is a date-sorted view by definition; land on that order.
-        .onAppear { if kind == .recentlyAdded { sort = .dateAdded } }
         .toolbar {
             // Playlists sort by title only; the play-count sorts mean nothing for them.
             if kind == .playlists {
@@ -229,7 +224,6 @@ struct CollectionPage: View {
 
     @ViewBuilder private var emptyState: some View {
         let empty = switch kind {
-        case .recentlyAdded: library.items.isEmpty
         case .playlists: playlists.playlists.isEmpty && library.localPlaylists.isEmpty
         case .artists: !library.items.contains { !$0.artist.isEmpty }
         case .albums: !library.items.contains { !$0.albumKey.isEmpty }

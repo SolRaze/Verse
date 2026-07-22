@@ -96,6 +96,7 @@ struct LibraryView: View {
                             }
                         } label: { Label("Import From", systemImage: "square.and.arrow.down") }
                         Divider()
+                        Button { editMode = .active } label: { Label("Edit", systemImage: "pencil") }
                         Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
                         Button { newFolderName = ""; newFolderParent = [] } label: {
                             Label("New Folder", systemImage: "folder.badge.plus")
@@ -179,31 +180,27 @@ struct LibraryView: View {
     // MARK: sections
 
     @ViewBuilder private var rootRows: some View {
-        recentlyAddedSection
         collectionsSection
         folderContents(path: [])          // top-level folders + loose items
+        recentlyPlayedSection             // below the rest (user request)
     }
 
-    /// Recently Added shown expanded inline (not just a collection row): the newest imports right
-    /// where you land, with the shared hold menu, and a link to the full list.
-    @ViewBuilder private var recentlyAddedSection: some View {
-        let recent = library.items
-            .sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
-            .prefix(6).map { $0 }
+    /// Recently Played, expanded inline below the collections and folders — the tracks you last
+    /// listened to, with the shared hold menu.
+    @ViewBuilder private var recentlyPlayedSection: some View {
+        let recent = library.items.filter { $0.lastPlayed != nil }
+            .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+            .prefix(8).map { $0 }
         if !recent.isEmpty {
             Section {
                 ForEach(recent) { item in
                     Button { coordinator.play(item, in: recent) } label: { ItemRow(item: item) }
                         .tint(.primary)
-                        .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
+                        .listRowInsets(.init(top: 0, leading: 20, bottom: 0, trailing: 20))
                         .contextMenu { ItemContextMenu(item: item, queue: recent, infoItem: $infoItem) }
                 }
-                NavigationLink(value: CollectionKind.recentlyAdded) {
-                    Text("See All").font(.footnote).foregroundStyle(.tint)
-                }
-                .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
             } header: {
-                Text("Recently Added")
+                Text("Recently Played")
             }
         }
     }
@@ -225,7 +222,7 @@ struct LibraryView: View {
                             .frame(width: 26)
                     }
                 }
-                .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
+                .listRowInsets(.init(top: 0, leading: 20, bottom: 0, trailing: 20))
                 .listRowSeparatorTint(.white.opacity(0.12))
             }
         }
