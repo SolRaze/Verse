@@ -199,7 +199,7 @@ struct HomeView: View {
     }
 
     private var unlockConfirmation: some View {
-        Text("Create unlocked — swipe right")
+        Text("Deck unlocked — swipe right")
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(.ultraThinMaterial, in: Capsule())
