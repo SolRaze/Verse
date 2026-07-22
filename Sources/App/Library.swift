@@ -538,6 +538,15 @@ final class LibraryStore: ObservableObject {
                    to: groupItems, wantTags: true, wantArt: true, force: true)
     }
 
+    /// Find Artwork: stamp a user-chosen cover on every track of an album folder.
+    func applyAlbumArtwork(_ image: UIImage, to albumName: String) async {
+        for item in items where item.albumKey == albumName {
+            Artwork.invalidate(key: item.id.uuidString)
+            Artwork.store(image: image, key: item.id.uuidString)
+        }
+        artworkVersion += 1
+    }
+
     /// Settings finder: candidates for an album folder, seeded from its current tags.
     func albumCandidates(for albumName: String) async -> [MetadataScraper.AlbumCandidate] {
         let groupItems = items.filter { $0.albumKey == albumName }

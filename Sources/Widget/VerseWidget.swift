@@ -76,24 +76,27 @@ struct VerseWidget: Widget {
 // MARK: - Live Activity: per-line lyrics on the Lock Screen (SPEC §6)
 
 struct LyricLiveActivity: Widget {
-    /// A previous/next lyric row that reserves its line height even when empty (a space keeps the
-    /// baseline), so filling it in doesn't shove the current line up or down.
-    private static func side(_ text: String) -> some View {
-        Text(text.isEmpty ? " " : text)
-            .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-            .opacity(text.isEmpty ? 0 : 1)
+    /// Current line, or the song title only in a gap while PAUSED — during playback a gap between
+    /// lines (intro, instrumental) shows nothing rather than flashing the title (user request).
+    private static func currentText(_ ctx: ActivityViewContext<LyricActivityAttributes>) -> String {
+        if !ctx.state.current.isEmpty { return ctx.state.current }
+        return ctx.state.isPlaying ? "" : ctx.attributes.title
     }
 
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LyricActivityAttributes.self) { context in
-            // Fixed three-slot layout: each row keeps its height whether or not it has text, so
-            // the card never resizes and the current line doesn't hop as previous/next fill in.
+            // The original look: previous/next only when present, current free to wrap.
             VStack(spacing: 4) {
-                Self.side(context.state.previous)
-                Text(context.state.current.isEmpty ? context.attributes.title : context.state.current)
-                    .font(.headline).lineLimit(1).minimumScaleFactor(0.75)
-                    .multilineTextAlignment(.center).frame(maxWidth: .infinity)
-                Self.side(context.state.next)
+                if !context.state.previous.isEmpty {
+                    Text(context.state.previous)
+                        .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Text(Self.currentText(context))
+                    .font(.headline).lineLimit(2).multilineTextAlignment(.center)
+                if !context.state.next.isEmpty {
+                    Text(context.state.next)
+                        .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding()
@@ -104,7 +107,7 @@ struct LyricLiveActivity: Widget {
             // and it works if the activity ever runs on hardware that does.
             DynamicIsland {
                 DynamicIslandExpandedRegion(.center) {
-                    Text(context.state.current.isEmpty ? context.attributes.title : context.state.current)
+                    Text(Self.currentText(context))
                         .font(.headline).lineLimit(2)
                 }
             } compactLeading: {

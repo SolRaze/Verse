@@ -91,6 +91,7 @@ struct HomeView: View {
     @State private var path = NavigationPath()
     @State private var showCreate = false
     @State private var unlockFlash = false
+    @State private var infoItem: LibraryItem?
 
     private func size(of id: String) -> String {
         for pair in shelfSizesCSV.split(separator: ",") {
@@ -247,6 +248,7 @@ struct HomeView: View {
             .overlay(alignment: .top) { if unlockFlash { unlockConfirmation } }
             .simultaneousGesture(revealSwipe)
             .fullScreenCover(isPresented: $showCreate) { CreatePage() }
+            .modifier(TrackSheets(infoItem: $infoItem))
         }
     }
 
@@ -305,6 +307,20 @@ struct HomeView: View {
         }
     }
 
+    /// Hold menu for an album tile: play or shuffle its tracks, or open it.
+    @ViewBuilder private func albumMenu(_ name: String) -> some View {
+        let tracks = library.items.filter { $0.albumKey == name }
+        Button { if let f = tracks.first { coordinator.play(f, in: tracks) } } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+        Button { if let f = tracks.randomElement() { coordinator.play(f, in: tracks.shuffled()) } } label: {
+            Label("Shuffle", systemImage: "shuffle")
+        }
+        Button { path.append(AlbumRef(name: name)) } label: {
+            Label("Open Album", systemImage: "square.stack")
+        }
+    }
+
     /// Two-up grid of most-played albums (2026-07-21, was rows).
     @ViewBuilder private var albumsSection: some View {
         // Read here (not only inside albumCover) so a fetched cover re-renders the whole grid —
@@ -332,6 +348,7 @@ struct HomeView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { albumMenu(album.name) }
                     }
                 }
                 .listRowBackground(Color.clear)
@@ -367,6 +384,7 @@ struct HomeView: View {
                 ForEach(recent) { item in
                     Button { coordinator.play(item, in: recent) } label: { ItemRow(item: item) }
                         .tint(.primary)
+                        .contextMenu { ItemContextMenu(item: item, queue: recent, infoItem: $infoItem) }
                 }
             }
         }
@@ -381,6 +399,7 @@ struct HomeView: View {
                 ForEach(recent) { item in
                     Button { coordinator.play(item, in: recent) } label: { ItemRow(item: item) }
                         .tint(.primary)
+                        .contextMenu { ItemContextMenu(item: item, queue: recent, infoItem: $infoItem) }
                 }
             }
         }
@@ -393,6 +412,7 @@ struct HomeView: View {
                 ForEach(tracks) { item in
                     Button { coordinator.play(item, in: tracks) } label: { ItemRow(item: item) }
                         .tint(.primary)
+                        .contextMenu { ItemContextMenu(item: item, queue: tracks, infoItem: $infoItem) }
                 }
             }
         }
