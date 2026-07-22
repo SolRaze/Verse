@@ -19,6 +19,11 @@ enum Pref {
     static let lyricsFont = "lyrics.fontDesign"      // design keyword or PostScript name
     static let lyricsSize = "lyrics.fontSize"        // Double, points; 22 = old title2 look
     static let customSwatches = "appearance.customSwatches"  // comma-joined RRGGBB list
+    static let likeGlyph = "player.likeGlyph"                // SF Symbol base for the favourite button
+
+    /// The five glyphs the player's favourite button can wear (hold it to pick). All have a
+    /// `.fill` variant for the liked state.
+    static let likeGlyphs = ["heart", "star", "bolt", "flame", "hand.thumbsup"]
 
     // Home shelves: ordered, enabled-only ids (hold a shelf header to move/remove; the
     // ellipsis menu adds). Replaces the old per-shelf bools.
@@ -60,6 +65,7 @@ enum Pref {
         UserDefaults.standard.register(defaults: [
             sponsorBlock: true, lyricsSize: 22.0,
             homeSections: "now,playlists,albums,tracks",
+            likeGlyph: "heart",
         ])
     }
 
