@@ -1,4 +1,5 @@
 import SwiftUI
+import MediaPlayer
 
 struct PlayerView: View {
     @EnvironmentObject var coordinator: Coordinator
@@ -17,7 +18,6 @@ private struct NowPlayingPane: View {
     @ObservedObject var player: Player
     @EnvironmentObject var coordinator: Coordinator
     @EnvironmentObject var library: LibraryStore
-    @Environment(\.dismiss) private var dismiss
     @State private var showLyrics = false
     @State private var infoItem: LibraryItem?
     @State private var showQueue = false
@@ -28,6 +28,7 @@ private struct NowPlayingPane: View {
     }
 
     @AppStorage(Pref.tintedBackground) private var tintedBG = false
+    @AppStorage(Pref.likeGlyph) private var likeGlyph = "heart"
 
     var body: some View {
         ZStack {
@@ -55,7 +56,9 @@ private struct NowPlayingPane: View {
                     titleRow.padding(.top, 28)
                     scrubber.padding(.top, 8)
                     transport
+                    volumeRow.padding(.top, 4)
                     bottomRow
+                    shareRow.padding(.top, 10)
 
                     Spacer(minLength: 0)
                 }
@@ -67,36 +70,20 @@ private struct NowPlayingPane: View {
         .preferredColorScheme(.dark)
     }
 
-    /// SoundCloud-shaped top: just the minimize chevron, top right, in a dark circle.
+    /// Top: just the options (•••) menu, top right, glass. Minimize is gone — the sheet's own
+    /// swipe-down dismiss covers it (#3).
     private var topBar: some View {
         HStack {
             Spacer()
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 40, height: 40)
-                    .background(.white.opacity(0.1), in: Circle())
-            }
+            optionsMenu
         }
         .padding(.top, 14)
     }
 
-    private var burgerMenu: some View {
+    private var optionsMenu: some View {
         Menu {
             if let item = coordinator.nowPlayingItem {
                 Button { infoItem = item } label: { Label("Info", systemImage: "info.circle") }
-                Button {
-                    var it = item
-                    it.liked.toggle()
-                    library.update(it)
-                } label: {
-                    let liked = library.items.first { $0.id == item.id }?.liked ?? item.liked
-                    Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.fill" : "heart")
-                }
-                if let url = shareURL(item) {
-                    ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
-                }
                 // Only library files live somewhere to view; remote queue entries don't.
                 if case .file = item.source {
                     // Album page, not the disk folder — file locations never display.
@@ -113,12 +100,61 @@ private struct NowPlayingPane: View {
                 }
             }
         } label: {
-            // Bare dots in a dim circle, Apple-Music style.
             Image(systemName: "ellipsis")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.8))
                 .frame(width: 34, height: 34)
-                .background(.white.opacity(0.1), in: Circle())
+                .glassEffect(.regular.interactive())
+        }
+    }
+
+    /// Tap = like/unlike the current track; hold = pick one of five glyphs the button wears
+    /// (#3, `Pref.likeGlyph`). Sits where the options menu used to, right of the title.
+    private var favouriteButton: some View {
+        let item = coordinator.nowPlayingItem
+        let liked = item.map { i in library.items.first { $0.id == i.id }?.liked ?? i.liked } ?? false
+        return Menu {
+            Picker("Icon", selection: $likeGlyph) {
+                ForEach(Pref.likeGlyphs, id: \.self) { g in
+                    Label(g.replacingOccurrences(of: ".", with: " ").capitalized, systemImage: g).tag(g)
+                }
+            }
+        } label: {
+            Image(systemName: liked ? "\(likeGlyph).fill" : likeGlyph)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(liked ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.8)))
+                .frame(width: 34, height: 34)
+                .glassEffect(.regular.interactive())
+        } primaryAction: {
+            guard var it = item else { return }
+            it.liked.toggle()
+            library.update(it)
+        }
+        .disabled(item == nil)
+    }
+
+    /// System volume, below the transport (#1). MPVolumeView drives the real hardware volume;
+    /// route button hidden (AirPlay already lives in the bottom row). Simulator shows it inert.
+    private var volumeRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "speaker.fill").font(.caption).foregroundStyle(.white.opacity(0.5))
+            SystemVolumeSlider().frame(height: 28)
+            Image(systemName: "speaker.wave.3.fill").font(.caption).foregroundStyle(.white.opacity(0.5))
+        }
+        .padding(.horizontal, 8)
+    }
+
+    /// Share the current track's URL, below the bottom-row icons (#2). Pulled out of the options
+    /// menu into its own glass button.
+    @ViewBuilder private var shareRow: some View {
+        if let item = coordinator.nowPlayingItem, let url = shareURL(item) {
+            ShareLink(item: url) {
+                Label("Share", systemImage: "square.and.arrow.up")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 18).padding(.vertical, 9)
+                    .glassEffect(.regular.interactive())
+            }
         }
     }
 
@@ -150,7 +186,7 @@ private struct NowPlayingPane: View {
         }
     }
 
-    /// Apple-Music-shaped: title/artist left, the burger in a circle on the right.
+    /// Apple-Music-shaped: title/artist left, the favourite button on the right (#3).
     private var titleRow: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
@@ -160,7 +196,7 @@ private struct NowPlayingPane: View {
                     .font(.subheadline).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
             }
             Spacer()
-            burgerMenu
+            favouriteButton
         }
         .padding(.top, 12)
     }
@@ -472,6 +508,18 @@ private struct VideoSurface: UIViewRepresentable {
     let view: UIView
     func makeUIView(context _: Context) -> UIView { view }
     func updateUIView(_: UIView, context _: Context) {}
+}
+
+/// System volume slider — MPVolumeView with its route button hidden, so it's just the slider
+/// wired to real hardware volume. Inert in the simulator (no volume there).
+private struct SystemVolumeSlider: UIViewRepresentable {
+    func makeUIView(context _: Context) -> MPVolumeView {
+        let v = MPVolumeView()
+        v.showsRouteButton = false
+        v.tintColor = .white
+        return v
+    }
+    func updateUIView(_: MPVolumeView, context _: Context) {}
 }
 
 /// Synced lyric sheet, Spotify-style: bold lines, active one lit, tap to seek, auto-scroll.
