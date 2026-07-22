@@ -4,7 +4,7 @@ import SwiftUI
 struct CreateTile: Codable, Identifiable, Hashable {
     var id = UUID()
     var feature: String
-    var cols: Int = 2   // 1...4
+    var cols: Int = 1   // 1...4 — starts a 1x1 square, widen to make a pill
     var rows: Int = 1   // 1...3
 }
 
@@ -27,7 +27,6 @@ struct CreatePage: View {
 
     private let gap: CGFloat = 12
     private let pad: CGFloat = 16
-    private let unit: CGFloat = 96
 
     var body: some View {
         NavigationStack {
@@ -88,28 +87,24 @@ struct CreatePage: View {
         return out
     }
 
-    private func width(_ tile: CreateTile, colW: CGFloat) -> CGFloat {
-        let c = CGFloat(min(max(tile.cols, 1), 4))
-        return colW * c + gap * (c - 1)
+    /// A cell is `colW` square, so a 1x1 tile is a square and widening it makes a pill.
+    private func size(_ tile: CreateTile, colW: CGFloat) -> CGSize {
+        let c = CGFloat(min(max(tile.cols, 1), 4)), r = CGFloat(min(max(tile.rows, 1), 3))
+        return CGSize(width: colW * c + gap * (c - 1), height: colW * r + gap * (r - 1))
     }
 
     @ViewBuilder private func tileView(_ tile: CreateTile, colW: CGFloat) -> some View {
         let feature = CreateFeature(rawValue: tile.feature)
+        let sz = size(tile, colW: colW)
         ZStack(alignment: .bottomTrailing) {
-            VStack(spacing: 8) {
-                Image(systemName: feature?.icon ?? "questionmark").font(.title)
-                Text(feature?.rawValue ?? tile.feature).font(.footnote.weight(.semibold))
-            }
-            .frame(width: width(tile, colW: colW), height: unit * CGFloat(tile.rows))
-            .glassEffect(.regular, in: Capsule())
-            .contentShape(Capsule())
-            .onTapGesture { if feature == .ipod { showIPod = true } }
-            .contextMenu {
-                Button(role: .destructive) { remove(tile) } label: {
-                    Label("Remove", systemImage: "trash")
+            WidgetBubble(title: feature?.rawValue ?? tile.feature, size: sz)
+                .onTapGesture { if feature == .ipod { showIPod = true } }
+                .contextMenu {
+                    Button(role: .destructive) { remove(tile) } label: {
+                        Label("Remove", systemImage: "trash")
+                    }
                 }
-            }
-            ResizeHandle(colStep: colW + gap, rowStep: unit) { dCols, dRows in
+            ResizeHandle(colStep: colW + gap, rowStep: colW + gap) { dCols, dRows in
                 resize(tile, dCols: dCols, dRows: dRows)
             }
             .padding(6)
@@ -140,6 +135,28 @@ struct CreatePage: View {
     }
 }
 
+/// The widget itself: a glass bubble with a rounded edge and its name — no icon. A 1x1 tile is a
+/// rounded square; widen it and the corner radius grows to a pill (Control-Center-style shapes).
+struct WidgetBubble: View {
+    let title: String
+    let size: CGSize
+
+    var body: some View {
+        let radius = size.width > size.height * 1.4
+            ? size.height / 2                              // wide → pill
+            : min(size.width, size.height) * 0.28          // square-ish → rounded square
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .multilineTextAlignment(.center)
+            .minimumScaleFactor(0.7)
+            .padding(10)
+            .frame(width: size.width, height: size.height)
+            .glassEffect(.regular, in: shape)
+            .overlay { shape.strokeBorder(.white.opacity(0.18), lineWidth: 1) }
+    }
+}
+
 /// The + palette: previews of each widget as it will look, tap (or drag) one onto the canvas.
 /// ponytail: tap-to-add — a modal sheet can't be a drop target for the canvas beneath it, so the
 /// literal drag-from-sheet isn't possible; the preview + tap is the honest version.
@@ -155,12 +172,8 @@ struct AddWidgetSheet: View {
                 LazyVGrid(columns: cols, spacing: 16) {
                     ForEach(CreateFeature.allCases) { f in
                         Button { onPick(f) } label: {
-                            VStack(spacing: 8) {
-                                Image(systemName: f.icon).font(.largeTitle)
-                                Text(f.rawValue).font(.footnote.weight(.semibold))
-                            }
-                            .frame(maxWidth: .infinity).frame(height: 110)
-                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+                            // Square glass bubble — the same format the tile takes on the canvas.
+                            WidgetBubble(title: f.rawValue, size: CGSize(width: 150, height: 150))
                         }
                         .buttonStyle(.plain)
                     }
