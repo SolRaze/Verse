@@ -28,7 +28,14 @@ struct MetadataScraper {
         var artist: String
         var year: String?
         var trackCount: Int
+        var country: String?
         var id: String { releaseMBID }
+
+        /// "2001 · US · 14 tracks" — the detail line under a candidate.
+        var detail: String {
+            [year, country, "\(trackCount) tracks"].compactMap { $0 }
+                .filter { !$0.isEmpty }.joined(separator: " · ")
+        }
     }
 
     /// A track in a release's medium, disc-aware. Position is 1-based within its disc.
@@ -123,7 +130,7 @@ struct MetadataScraper {
                 ?? (r["media"] as? [[String: Any]])?.reduce(0) { $0 + (($1["track-count"] as? Int) ?? 0) }
                 ?? 0
             return AlbumCandidate(releaseMBID: id, album: title, artist: artist,
-                                  year: year, trackCount: count)
+                                  year: year, trackCount: count, country: r["country"] as? String)
         }
     }
 

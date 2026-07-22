@@ -424,7 +424,20 @@ struct AlbumPage: View {
     @EnvironmentObject var coordinator: Coordinator
     let album: AlbumRef
     @State private var infoItem: LibraryItem?
-    @State private var finding = false
+    @State private var albumSheet: AlbumSheet?
+
+    enum AlbumSheet: String, Identifiable { case metadata, artwork; var id: String { rawValue } }
+
+    /// Tracks grouped by disc — one group (disc 0) when the album is single-disc, one per disc
+    /// otherwise, so multi-disc albums read as "Disc 1 / Disc 2" (user request).
+    private var discGroups: [(disc: Int, tracks: [LibraryItem])] {
+        let t = tracks
+        let discs = Set(t.compactMap(\.discNumber))
+        guard discs.count > 1 else { return [(0, t)] }
+        return Dictionary(grouping: t, by: { $0.discNumber ?? 1 })
+            .sorted { $0.key < $1.key }
+            .map { (disc: $0.key, tracks: $0.value) }
+    }
 
     private var tracks: [LibraryItem] {
         // Disc/track order once the online lookup has filled numbers; numeric-aware title order
@@ -489,24 +502,13 @@ struct AlbumPage: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             }
-            Section {
-                ForEach(Array(tracks.enumerated()), id: \.element.id) { i, item in
-                    Button { coordinator.play(item, in: tracks) } label: {
-                        HStack(spacing: 10) {
-                            Text("\(item.trackNumber ?? i + 1)")
-                                .font(.footnote).foregroundStyle(.secondary)
-                                .frame(width: 22, alignment: .trailing).monospacedDigit()
-                            Text(item.title).lineLimit(1)
-                            Spacer()
-                            if coordinator.nowPlayingItemID == item.id {
-                                Image(systemName: "waveform").foregroundStyle(.tint)
-                            }
-                        }
-                    }
-                    .tint(.primary)
-                    .listRowInsets(.init(top: 6, leading: 20, bottom: 6, trailing: 20))
-                    .contextMenu {
-                        ItemContextMenu(item: item, queue: tracks, infoItem: $infoItem)
+            let groups = discGroups
+            ForEach(groups, id: \.disc) { group in
+                Section {
+                    trackRows(group.tracks, in: tracks)
+                } header: {
+                    if groups.count > 1 {
+                        Text("Disc \(group.disc) · \(itemCountText(group.tracks.count))")
                     }
                 }
             }
@@ -516,14 +518,47 @@ struct AlbumPage: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { finding = true } label: { Image(systemName: "text.magnifyingglass") }
+                Menu {
+                    Button { albumSheet = .metadata } label: {
+                        Label("Find Metadata", systemImage: "text.magnifyingglass")
+                    }
+                    Button { albumSheet = .artwork } label: {
+                        Label("Find Artwork", systemImage: "photo")
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
                     .disabled(library.rescanning)
             }
         }
-        .sheet(isPresented: $finding) {
-            AlbumFinderSheet(albumName: album.name)
+        .sheet(item: $albumSheet) { sheet in
+            switch sheet {
+            case .metadata: AlbumFinderSheet(albumName: album.name)
+            case .artwork: AlbumArtworkFinderSheet(albumName: album.name)
+            }
         }
         .modifier(TrackSheets(infoItem: $infoItem))
+    }
+
+    /// One disc's rows. `queue` is the full album so play/queue spans discs.
+    @ViewBuilder private func trackRows(_ rows: [LibraryItem], in queue: [LibraryItem]) -> some View {
+        ForEach(Array(rows.enumerated()), id: \.element.id) { i, item in
+            Button { coordinator.play(item, in: queue) } label: {
+                HStack(spacing: 10) {
+                    Text("\(item.trackNumber ?? i + 1)")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(width: 22, alignment: .trailing).monospacedDigit()
+                    Text(item.title).lineLimit(1)
+                    Spacer()
+                    if coordinator.nowPlayingItemID == item.id {
+                        Image(systemName: "waveform").foregroundStyle(.tint)
+                    }
+                }
+            }
+            .tint(.primary)
+            .listRowInsets(.init(top: 6, leading: 20, bottom: 6, trailing: 20))
+            .contextMenu {
+                ItemContextMenu(item: item, queue: queue, infoItem: $infoItem)
+            }
+        }
     }
 }
 
@@ -558,9 +593,8 @@ struct AlbumFinderSheet: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(c.album).font(.subheadline.weight(.semibold)).lineLimit(1)
-                            Text([c.artist, c.year, "\(c.trackCount) tracks"]
-                                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text(c.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(c.detail).font(.caption2).foregroundStyle(.tertiary)
                         }
                     }
                     .tint(.primary)
@@ -578,6 +612,65 @@ struct AlbumFinderSheet: View {
         }
         .task {
             candidates = await library.albumCandidates(for: albumName)
+            loading = false
+        }
+    }
+}
+
+/// "Find Artwork" for one album: fetches the cover of each MusicBrainz release candidate and shows
+/// them as a grid so the user picks the best one; applying stamps it on every track of the album.
+struct AlbumArtworkFinderSheet: View {
+    @EnvironmentObject var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    let albumName: String
+    @State private var covers: [(id: String, image: UIImage)] = []
+    @State private var loading = true
+    @State private var applying: String?
+
+    private let cols = [GridItem(.adaptive(minimum: 140), spacing: 12)]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                if loading {
+                    ProgressView().padding(40)
+                } else if covers.isEmpty {
+                    ContentUnavailableView("No artwork found", systemImage: "photo",
+                                           description: Text("MusicBrainz / Cover Art Archive had no covers for “\(albumName)”."))
+                        .padding(.top, 40)
+                } else {
+                    LazyVGrid(columns: cols, spacing: 12) {
+                        ForEach(covers, id: \.id) { cover in
+                            Button {
+                                applying = cover.id
+                                Task {
+                                    await library.applyAlbumArtwork(cover.image, to: albumName)
+                                    dismiss()
+                                }
+                            } label: {
+                                Image(uiImage: cover.image).resizable().aspectRatio(1, contentMode: .fit)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay { if applying == cover.id { ProgressView().tint(.white) } }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(applying != nil)
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Find Artwork")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+        }
+        .task {
+            for cand in await library.albumCandidates(for: albumName) {
+                if let img = await MetadataScraper.coverArt(mbid: cand.releaseMBID) {
+                    covers.append((cand.releaseMBID, img))
+                }
+            }
             loading = false
         }
     }

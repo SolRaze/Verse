@@ -116,9 +116,6 @@ struct SettingsView: View {
 
     // Import moved here from the Library tab menu (2026-07-21): Settings is the one place
     // that opens folders and files now.
-    @State private var showingImport = false
-    @State private var importKind: ImportKind = .files
-
     enum ImportKind {
         case folder, files
         var types: [UTType] {
@@ -149,14 +146,7 @@ struct SettingsView: View {
             List {
                 // Library first — import and maintenance outrank cosmetics.
                 Section {
-                    Button {
-                        importKind = .folder; showingImport = true
-                    } label: { Label("Import Folder", systemImage: "folder.badge.plus") }
-                    Button {
-                        importKind = .files; showingImport = true
-                    } label: { Label("Import Files", systemImage: "doc.badge.plus") }
-                    // One row for every imported folder instead of a row each — the list stays
-                    // short, the folders live behind it.
+                    // Import lives inside Locations now (its + menu, top right).
                     NavigationLink {
                         LocationsView()
                     } label: {
@@ -278,15 +268,6 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .fileImporter(isPresented: $showingImport,
-                          allowedContentTypes: importKind.types,
-                          allowsMultipleSelection: true) { result in
-                guard case .success(let urls) = result else { return }
-                switch importKind {
-                case .folder: library.add(pickedURLs: urls)
-                case .files: library.add(pickedFiles: urls)
-                }
-            }
             .alert(wipAlert ?? "", isPresented: .init(
                 get: { wipAlert != nil }, set: { if !$0 { wipAlert = nil } })
             ) { Button("OK", role: .cancel) {} } message: {
@@ -388,16 +369,19 @@ struct MetadataSettingsView: View {
     }
 }
 
-/// Every imported folder on one page (was a row each in Settings). Swipe to remove — files and
-/// sidecars stay on disk, so re-importing restores the library.
+/// Every imported folder on one page (was a row each in Settings), plus the import actions in a
+/// top-right menu. Swipe to remove — files and sidecars stay on disk, so re-importing restores
+/// the library.
 struct LocationsView: View {
     @EnvironmentObject var library: LibraryStore
+    @State private var showingImport = false
+    @State private var importKind: SettingsView.ImportKind = .files
 
     var body: some View {
         List {
             if library.importedRoots.isEmpty {
                 ContentUnavailableView("No folders imported", systemImage: "folder",
-                                       description: Text("Import a folder from Settings or the Library tab."))
+                                       description: Text("Add music with the + button, top right."))
             } else {
                 ForEach(library.importedRoots, id: \.self) { root in
                     LabeledContent("Folder", value: root)
@@ -411,6 +395,26 @@ struct LocationsView: View {
         }
         .navigationTitle("Locations")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { importKind = .folder; showingImport = true } label: {
+                        Label("Import Folder", systemImage: "folder.badge.plus")
+                    }
+                    Button { importKind = .files; showingImport = true } label: {
+                        Label("Import Files", systemImage: "doc.badge.plus")
+                    }
+                } label: { Image(systemName: "plus") }
+            }
+        }
+        .fileImporter(isPresented: $showingImport, allowedContentTypes: importKind.types,
+                      allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            switch importKind {
+            case .folder: library.add(pickedURLs: urls)
+            case .files: library.add(pickedFiles: urls)
+            }
+        }
     }
 }
 
