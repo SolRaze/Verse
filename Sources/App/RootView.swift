@@ -47,25 +47,3 @@ struct RootView: View {
     }
 }
 
-/// The hidden Create page (unlock via triple-tap on Home's title, open via right-swipe). Shaped
-/// like a real tab — large navigation title in the same format as Home/Library — even though it
-/// isn't in the dock. Swipe left to leave. Making tools (Stem Player, mixes) aren't built yet.
-struct CreatePage: View {
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label("Create", systemImage: "plus.circle")
-            } description: {
-                Text("Making tools — Stem Player and mixes — are in the works. Swipe left to go back.")
-            }
-            .opacity(0.6)
-            .navigationTitle("Create")
-            .navigationBarTitleDisplayMode(.large)
-        }
-        // Mirrors the reveal: a right-swipe opened it, a left-swipe closes it.
-        .gesture(DragGesture(minimumDistance: 30).onEnded { v in
-            if v.translation.width < -90, abs(v.translation.height) < 60 { dismiss() }
-        })
-    }
-}

@@ -158,7 +158,7 @@ final class Coordinator: ObservableObject {
                                 album: item.album,
                                 artwork: Artwork.image(for: item.id.uuidString),
                                 scoped: true, resumeKey: item.id.uuidString),
-                    lyrics: nil, autoplay: false)
+                    lyrics: nil, autoplay: false, resumeToSaved: true)
     }
 
     func toggleShuffle() {
@@ -198,10 +198,12 @@ final class Coordinator: ObservableObject {
         }
     }
 
-    func play(_ item: LibraryItem, in allItems: [LibraryItem]) {
+    /// `resume: true` continues from the track's saved position (the album/launch Resume actions);
+    /// a normal tap leaves it false and starts from the beginning.
+    func play(_ item: LibraryItem, in allItems: [LibraryItem], resume: Bool = false) {
         queue = allItems
         queueIndex = allItems.firstIndex(of: item) ?? 0
-        Task { await start(item) }
+        Task { await start(item, resume: resume) }
     }
 
     /// Play a remote playlist from `index`. Every entry becomes a queue item: downloaded ones
@@ -240,7 +242,7 @@ final class Coordinator: ObservableObject {
         Task { await start(item) }
     }
 
-    private func start(_ item: LibraryItem) async {
+    private func start(_ item: LibraryItem, resume: Bool = false) async {
         busy = true
         lastError = nil
         nowTitle = item.title
@@ -295,7 +297,7 @@ final class Coordinator: ObservableObject {
                         Player.Item(url: url, title: item.title, artist: item.artist,
                                     artwork: Artwork.image(for: item.id.uuidString), scoped: true,
                                     resumeKey: item.id.uuidString),
-                        lyrics: nil)
+                        lyrics: nil, resumeToSaved: resume)
                     resolveExtras(for: item, mediaURL: url, playbackURL: url, title: item.title)
                 }
             }

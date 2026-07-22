@@ -13,6 +13,9 @@ enum Pref {
     static let tintedBackground = "appearance.tintedBackground"  // player bg from cover colour
     static let iPodMode = "appearance.iPodMode"                  // click-wheel skeleton (beta)
     static let createUnlocked = "create.unlocked"               // hidden Create page revealed
+    static let createTiles = "create.tiles"                     // JSON [CreateTile]
+    static let ipodWheelColour = "ipod.wheelColour"             // RRGGBB, "" = classic grey
+    static let ipodScreenColour = "ipod.screenColour"           // RRGGBB, "" = classic green LCD
     static let lyricsFont = "lyrics.fontDesign"      // design keyword or PostScript name
     static let lyricsSize = "lyrics.fontSize"        // Double, points; 22 = old title2 look
     static let customSwatches = "appearance.customSwatches"  // comma-joined RRGGBB list
@@ -95,7 +98,6 @@ struct SettingsView: View {
     @AppStorage(Pref.lyricsSize) private var lyricsSize = 22.0
     @AppStorage(Pref.customSwatches) private var customSwatches = ""
     @AppStorage(Pref.tintedBackground) private var tintedBackground = false
-    @AppStorage(Pref.iPodMode) private var iPodMode = false
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var coordinator: Coordinator
     @State private var cachesCleared = false
@@ -200,7 +202,9 @@ struct SettingsView: View {
                         LabeledContent("App Icon",
                                        value: IconPickerView.icons.first { $0.id == appIcon }?.label ?? "Verse")
                     }
-                    Toggle("iPod Mode (beta)", isOn: $iPodMode)
+                    NavigationLink { IPodSettingsView() } label: {
+                        Label("iPod Mode", systemImage: "opticaldisc")
+                    }
                 } header: {
                     Text("Appearance")
                 } footer: {
@@ -415,6 +419,42 @@ struct LocationsView: View {
             case .files: library.add(pickedFiles: urls)
             }
         }
+    }
+}
+
+/// iPod Mode's own settings entry (was a bare toggle in Appearance): the enable switch plus the
+/// click-wheel and screen colours, read by `IPodView`.
+struct IPodSettingsView: View {
+    @AppStorage(Pref.iPodMode) private var iPodMode = false
+    @AppStorage(Pref.ipodWheelColour) private var wheelHex = ""
+    @AppStorage(Pref.ipodScreenColour) private var screenHex = ""
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("iPod Mode", isOn: $iPodMode)
+            } footer: {
+                Text("A classic click-wheel player over your library. Also available as a Create widget.")
+            }
+            Section {
+                colorRow("Wheel", $wheelHex, defaultColour: Color(white: 0.85))
+                colorRow("Screen", $screenHex, defaultColour: Color(red: 0.78, green: 0.85, blue: 0.78))
+                if !wheelHex.isEmpty || !screenHex.isEmpty {
+                    Button("Reset Colours") { wheelHex = ""; screenHex = "" }
+                }
+            } header: {
+                Text("Colours")
+            }
+        }
+        .navigationTitle("iPod Mode")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func colorRow(_ label: String, _ hex: Binding<String>, defaultColour: Color) -> some View {
+        ColorPicker(label, selection: Binding(
+            get: { hex.wrappedValue.isEmpty ? defaultColour : Pref.color(for: hex.wrappedValue) },
+            set: { hex.wrappedValue = Pref.hex(of: $0) }
+        ), supportsOpacity: false)
     }
 }
 

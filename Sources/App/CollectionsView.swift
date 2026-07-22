@@ -506,7 +506,7 @@ struct AlbumPage: View {
 
                     // Resume: pick up the album's most-recently-played track at its saved spot.
                     if let last = lastPlayed(tracks) {
-                        Button { coordinator.play(last, in: tracks) } label: {
+                        Button { coordinator.play(last, in: tracks, resume: true) } label: {
                             Label("Resume \(last.title)", systemImage: "arrow.clockwise")
                                 .frame(maxWidth: .infinity).padding(.vertical, 8).lineLimit(1)
                         }

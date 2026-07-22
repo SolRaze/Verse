@@ -179,8 +179,33 @@ struct LibraryView: View {
     // MARK: sections
 
     @ViewBuilder private var rootRows: some View {
+        recentlyAddedSection
         collectionsSection
         folderContents(path: [])          // top-level folders + loose items
+    }
+
+    /// Recently Added shown expanded inline (not just a collection row): the newest imports right
+    /// where you land, with the shared hold menu, and a link to the full list.
+    @ViewBuilder private var recentlyAddedSection: some View {
+        let recent = library.items
+            .sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            .prefix(6).map { $0 }
+        if !recent.isEmpty {
+            Section {
+                ForEach(recent) { item in
+                    Button { coordinator.play(item, in: recent) } label: { ItemRow(item: item) }
+                        .tint(.primary)
+                        .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
+                        .contextMenu { ItemContextMenu(item: item, queue: recent, infoItem: $infoItem) }
+                }
+                NavigationLink(value: CollectionKind.recentlyAdded) {
+                    Text("See All").font(.footnote).foregroundStyle(.tint)
+                }
+                .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
+            } header: {
+                Text("Recently Added")
+            }
+        }
     }
 
     /// Apple-Music-style entry rows: Playlists / Artists / Albums / Songs (inbox-2). Remote
@@ -200,7 +225,7 @@ struct LibraryView: View {
                             .frame(width: 26)
                     }
                 }
-                .listRowInsets(.init(top: 3, leading: 20, bottom: 3, trailing: 20))
+                .listRowInsets(.init(top: 1, leading: 20, bottom: 1, trailing: 20))
                 .listRowSeparatorTint(.white.opacity(0.12))
             }
         }

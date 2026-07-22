@@ -105,19 +105,21 @@ final class Player: NSObject, ObservableObject {
     }
 
     /// `autoplay: false` loads the track paused — used to restore the last-playing item into Now
-    /// Playing on launch without starting audio or counting a play.
-    func load(_ item: Item, lyrics: Lyrics?, autoplay: Bool = true) {
+    /// Playing on launch. `resumeToSaved` applies the track's saved position; OFF by default so a
+    /// normal tap starts from the beginning (only the explicit Resume actions pass true). The
+    /// position keeps being SAVED regardless (resumeKey), so Resume/launch have something to use.
+    func load(_ item: Item, lyrics: Lyrics?, autoplay: Bool = true, resumeToSaved: Bool = false) {
         stop()
         current = item
         self.lyrics = lyrics
 
         if item.scoped { _ = item.url.startAccessingSecurityScopedResource() }
         vlc.media = VLCMedia(url: item.url)
-        // Resume where this track was left (>10s in, applied once duration is known).
-        pendingResume = item.resumeKey.flatMap {
+        // Only resume when asked; >10s in, applied once duration is known.
+        pendingResume = resumeToSaved ? item.resumeKey.flatMap {
             let t = UserDefaults.standard.double(forKey: "resume." + $0)
             return t > 10 ? t : nil
-        }
+        } : nil
 
         nowPlaying.begin(
             track: .init(title: item.title, artist: item.artist, album: item.album,
