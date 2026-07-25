@@ -4,7 +4,7 @@ import UIKit
 
 /// The metadata fields a user can hand-edit and therefore freeze against auto-fetch (#6c).
 enum MetaField: String, CaseIterable, Identifiable {
-    case title, artist, album, trackNumber, discNumber, artwork
+    case title, artist, album, trackNumber, discNumber, artwork, lyrics
     var id: String { rawValue }
 
     var label: String {
@@ -15,6 +15,37 @@ enum MetaField: String, CaseIterable, Identifiable {
         case .trackNumber: "Track number"
         case .discNumber: "Disc number"
         case .artwork: "Artwork"
+        case .lyrics: "Lyrics"
+        }
+    }
+}
+
+/// A track's standing in the fetch review (#6a). Ordered by how much attention it wants, which
+/// is also the list's default order — conflicts and gaps first, settled things below.
+enum FetchState: String, CaseIterable, Identifiable, Comparable {
+    case conflict = "Conflict", missing = "Missing", ignored = "Ignored", found = "Found"
+    var id: String { rawValue }
+
+    var rank: Int {
+        switch self { case .conflict: 0; case .missing: 1; case .ignored: 2; case .found: 3 }
+    }
+    static func < (a: FetchState, b: FetchState) -> Bool { a.rank < b.rank }
+
+    /// Shown when the dot is tapped.
+    var explanation: String {
+        switch self {
+        case .conflict:
+            "An online release matched this album, but its tracklist doesn't line up with the "
+                + "files in the folder — usually a different pressing (deluxe, single, "
+                + "compilation). Nothing was applied. Open it to pick the right release yourself."
+        case .missing:
+            "Something fetchable is still absent — album tag, cover art or lyrics — and nothing "
+                + "has been found for it yet. Open it to search by hand."
+        case .ignored:
+            "Left alone on purpose. Either you edited these fields yourself, so they're frozen "
+                + "against online metadata, or the folder is switched off in Search These Folders."
+        case .found:
+            "Everything fetchable is present: album, artwork and lyrics."
         }
     }
 }
@@ -457,6 +488,7 @@ final class LibraryStore: ObservableObject {
         let groups = Dictionary(grouping: eligible, by: \.albumKey)
         let skipFound = UserDefaults.standard.bool(forKey: Pref.skipAlreadyFound)
         var hits = 0, misses = 0, skipped = 0
+        fetchConflicts = []      // this run's conflicts, not the last one's
         for (albumName, groupItems) in groups {
             // #6b: a folder where every track already has what this pass would fetch costs a
             // rate-limited round trip to learn nothing. Skip it unless the user asked not to.
@@ -477,6 +509,9 @@ final class LibraryStore: ObservableObject {
                 // its numbers/album/cover would silently mistag. A Fetch-button/finder tap is
                 // explicit intent, so `force` applies regardless (the finder lets the user pick).
                 guard force || detail.tracks.count == groupItems.count else {
+                    // A real conflict, not a plain miss: something matched, it just didn't fit.
+                    // The review list surfaces these for a human to pick a release (#6a).
+                    fetchConflicts.formUnion(groupItems.map(\.id))
                     misses += groupItems.count; continue
                 }
                 applyAlbum(candidate: cand, tracks: detail.tracks, cover: detail.cover,
@@ -499,6 +534,38 @@ final class LibraryStore: ObservableObject {
     }
 
     private enum FetchOutcome { case hit, miss, skip }
+
+    /// Albums whose release match was rejected because its tracklist didn't fit the folder —
+    /// the review list's Conflict state (#6a). Rebuilt by every pass, not persisted: it describes
+    /// the last run, and a run that no longer conflicts should clear it.
+    @Published private(set) var fetchConflicts: Set<UUID> = []
+
+    /// Which fetchable fields this track still lacks. Reads the artwork and lyrics caches, so it
+    /// reflects reality rather than a stored flag — that's what makes the review's dots live.
+    func missingFields(of item: LibraryItem) -> [MetaField] {
+        var out: [MetaField] = []
+        if item.album.isEmpty { out.append(.album) }
+        if Artwork.image(for: item.id.uuidString) == nil { out.append(.artwork) }
+        if (LyricsResolver.cachedRaw(for: item.id.uuidString) ?? "").isEmpty { out.append(.lyrics) }
+        return out
+    }
+
+    private func isExcluded(_ item: LibraryItem) -> Bool {
+        guard let root = item.folders.first else { return false }
+        return Self.excludedFolders().contains(root)
+    }
+
+    /// The review list's state for one track (#6a). Recomputed on every read from the store and
+    /// the two caches, so a dot flips the moment a lookup lands — no manual refresh, no stored
+    /// status to go stale.
+    func reviewState(for item: LibraryItem) -> FetchState {
+        if fetchConflicts.contains(item.id) { return .conflict }
+        let gaps = missingFields(of: item)
+        if gaps.isEmpty { return .found }
+        // Still has gaps, but every one of them is a gap the user chose to leave.
+        if isExcluded(item) || gaps.allSatisfy({ item.isFrozen($0) }) { return .ignored }
+        return .missing
+    }
 
     /// Does this track already hold everything the pass would look for? A frozen field counts as
     /// complete — the pass is not allowed to touch it either way (#6b, #6c).

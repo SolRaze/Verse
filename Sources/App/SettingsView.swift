@@ -336,6 +336,13 @@ struct MetadataSettingsView: View {
             }
 
             Section {
+                // #6a: where a run's conflicts and gaps get looked at and resolved.
+                NavigationLink { FetchReviewView() } label: {
+                    Label("Review Results", systemImage: "checklist")
+                }
+            }
+
+            Section {
                 busyButton("Rescan Library") { await library.rescanLibrary() }
                 busyButton("Fetch Metadata") { await library.fetchOnlineTags() }
                 busyButton("Fetch Artwork") { await library.fetchOnlineArtwork() }
@@ -632,5 +639,160 @@ struct IconPickerView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("App Icon")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Fetch review (#6a): ONE scrolling list of every local track with a coloured state dot — no
+/// tabs. Conflicts and gaps pin to the top by default because they are the rows wanting a
+/// decision; ignored and found sit below. Tapping a dot explains the state; tapping the row opens
+/// the finder that can actually resolve it. Every dot is computed live from the store and the
+/// artwork/lyrics caches, so a row re-tags itself the moment its lookup lands.
+struct FetchReviewView: View {
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var coordinator: Coordinator
+    @State private var order: Order = .needsAttention
+    @State private var explain: FetchState?
+    @State private var finderAlbum: AlbumPick?
+    @State private var lyricsItem: LibraryItem?
+
+    /// `AlbumRef` is a navigation value (Hashable, not Identifiable), and `sheet(item:)` needs
+    /// identity — so the sheet gets its own tiny wrapper rather than the shared type growing a
+    /// conformance it doesn't otherwise want.
+    private struct AlbumPick: Identifiable { let id: String }
+
+    /// The "smart/concise" control: one menu, three orders. Not tabs, not a filter that hides
+    /// rows — everything stays in the one list.
+    enum Order: String, CaseIterable, Identifiable {
+        case needsAttention = "Needs Attention", byState = "By State", alphabetical = "A–Z"
+        var id: String { rawValue }
+    }
+
+    /// Local files only — a YouTube entry has no album folder or sidecar to fetch into.
+    private var tracks: [LibraryItem] {
+        library.items.filter { if case .file = $0.source { true } else { false } }
+    }
+
+    private func sorted(_ list: [LibraryItem]) -> [LibraryItem] {
+        switch order {
+        case .alphabetical:
+            list.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .needsAttention, .byState:
+            list.sorted {
+                let a = library.reviewState(for: $0), b = library.reviewState(for: $1)
+                return a == b
+                    ? $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                    : a < b
+            }
+        }
+    }
+
+    var body: some View {
+        List {
+            if tracks.isEmpty {
+                ContentUnavailableView("Nothing to review", systemImage: "checklist",
+                                       description: Text("Import some files and run a fetch."))
+            } else if order == .byState {
+                // Grouped is still one list — section headers, not tabs.
+                ForEach(FetchState.allCases) { state in
+                    let rows = tracks.filter { library.reviewState(for: $0) == state }
+                    if !rows.isEmpty {
+                        Section(state.rawValue) { ForEach(sorted(rows)) { row($0) } }
+                    }
+                }
+            } else {
+                ForEach(sorted(tracks)) { row($0) }
+            }
+        }
+        .navigationTitle("Review")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Order", selection: $order) {
+                        ForEach(Order.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+            }
+        }
+        .sheet(item: $explain) { state in
+            StateExplainerSheet(state: state, count: tracks.filter {
+                library.reviewState(for: $0) == state
+            }.count)
+        }
+        .sheet(item: $finderAlbum) { AlbumFinderSheet(albumName: $0.id) }
+        .sheet(item: $lyricsItem) { LyricsFinderSheet(item: $0, player: coordinator.player) }
+    }
+
+    private func row(_ item: LibraryItem) -> some View {
+        let state = library.reviewState(for: item)
+        let gaps = library.missingFields(of: item)
+        return Button { resolve(item, state: state, gaps: gaps) } label: {
+            HStack(spacing: 10) {
+                // The dot is its own button so tapping it explains rather than navigates.
+                Button { explain = state } label: {
+                    Circle().fill(colour(state)).frame(width: 10, height: 10)
+                        .padding(6)          // a 10pt dot is not a tap target on its own
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title).font(.subheadline).lineLimit(1)
+                    Text(state == .found
+                         ? state.rawValue
+                         : "\(state.rawValue) · \(gaps.map(\.label).joined(separator: ", "))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .tint(.primary)
+    }
+
+    private func colour(_ state: FetchState) -> Color {
+        switch state {
+        case .conflict: .orange
+        case .missing: .red
+        case .ignored: .gray
+        case .found: .green
+        }
+    }
+
+    /// Open whatever can fix this row: the album finder when a tag or cover is absent (it fixes
+    /// the whole folder at once), the lyrics finder when lyrics are the only gap.
+    private func resolve(_ item: LibraryItem, state: FetchState, gaps: [MetaField]) {
+        if gaps.contains(.album) || gaps.contains(.artwork) || state == .conflict {
+            if !item.albumKey.isEmpty { finderAlbum = AlbumPick(id: item.albumKey) }
+        } else if gaps.contains(.lyrics) {
+            lyricsItem = item
+        }
+    }
+}
+
+/// What a dot means, slid up from the row that owns it (#6a).
+private struct StateExplainerSheet: View {
+    let state: FetchState
+    let count: Int
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(state.explanation)
+                } header: {
+                    Text("\(count) track\(count == 1 ? "" : "s")")
+                }
+            }
+            .navigationTitle(state.rawValue)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.height(260)])
+        .themedTint()
     }
 }
