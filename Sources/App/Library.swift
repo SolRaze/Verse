@@ -634,6 +634,13 @@ final class LibraryStore: ObservableObject {
         await lyricsPass(force: true)
     }
 
+    /// Manual lyrics finder (#6g): attach a chosen LRCLIB result to a track, cache it and write
+    /// the `.lrc` sidecar so the choice survives a re-import like any other edit.
+    func attachLyrics(_ raw: String, to item: LibraryItem) {
+        LyricsResolver.attach(lrcText: raw, cacheKey: item.id.uuidString)
+        exportLyricsSidecar(item)
+    }
+
     /// Hold-menu "Fetch Lyrics": one track, negative marker cleared so it genuinely retries.
     func fetchLyrics(_ item: LibraryItem) async {
         guard case .file = item.source, let url = resolveURL(item) else { return }

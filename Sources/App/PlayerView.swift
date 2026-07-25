@@ -23,6 +23,7 @@ private struct NowPlayingPane: View {
     @State private var infoItem: LibraryItem?
     @State private var showQueue = false
     @State private var showReactions = false
+    @State private var showLyricsFinder = false
 
     private var hasLyrics: Bool {
         guard let l = player.lyrics else { return false }
@@ -68,6 +69,11 @@ private struct NowPlayingPane: View {
         }
         .sheet(item: $infoItem) { InfoSheet(item: $0) }
         .sheet(isPresented: $showQueue) { QueueSheet() }
+        .sheet(isPresented: $showLyricsFinder) {
+            if let item = coordinator.nowPlayingItem {
+                LyricsFinderSheet(item: item, player: player)
+            }
+        }
         .preferredColorScheme(.dark)
     }
 
@@ -98,6 +104,14 @@ private struct NowPlayingPane: View {
                 if !item.artist.isEmpty {
                     Button { coordinator.open(.artist(item.artist)) } label: {
                         Label("View Artist", systemImage: "music.mic")
+                    }
+                }
+                // #6g: only when this track has none — with lyrics present there is nothing to
+                // go looking for.
+                if !hasLyrics, case .file = item.source {
+                    Divider()
+                    Button { showLyricsFinder = true } label: {
+                        Label("Find Lyrics", systemImage: "quote.bubble")
                     }
                 }
             }
@@ -315,6 +329,96 @@ private struct NowPlayingPane: View {
     private func timeString(_ t: TimeInterval) -> String {
         guard t.isFinite, t > 0 else { return "0:00" }
         return String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
+    }
+}
+
+/// Manual lyrics finder (#6g), reached from the player's ••• menu when the current track has no
+/// lyrics. Same shape as the album finders: results list, search bar pinned to the bottom with
+/// sort + filter (#6d/e/f). LRCLIB's `q` already matches artist as well as track, so typing an
+/// artist pivots to their songs for free. Picking one attaches it to the track and lights it up
+/// in the player immediately.
+struct LyricsFinderSheet: View {
+    @EnvironmentObject var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    let item: LibraryItem
+    @ObservedObject var player: Player
+
+    @State private var candidates: [LRCLibClient.Candidate] = []
+    @State private var loading = true
+    @State private var query = ""
+    @State private var sort: FinderSort = .relevance
+    @State private var syncedOnly = false
+    @State private var failed = false
+
+    private var shown: [LRCLibClient.Candidate] {
+        sort.apply(syncedOnly ? candidates.filter(\.synced) : candidates)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if loading {
+                    HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+                } else if shown.isEmpty {
+                    ContentUnavailableView("No lyrics found", systemImage: "quote.bubble",
+                                           description: Text(failed
+                                               ? "LRCLIB could not be reached. Try again in a moment."
+                                               : candidates.isEmpty
+                                                   ? "LRCLIB had nothing for “\(query)”. Edit the search below and try again."
+                                                   : "Every result was filtered out. Turn off “Only synced” below."))
+                }
+                ForEach(shown) { c in
+                    Button { apply(c) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(c.track).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(c.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    .tint(.primary)
+                }
+            }
+            .navigationTitle("Find Lyrics")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .safeAreaInset(edge: .bottom) {
+                FinderSearchBar(query: $query, sort: $sort, matchingOnly: $syncedOnly,
+                                filterLabel: "Only synced",
+                                sortOptions: FinderSort.songOptions,
+                                placeholder: "Search LRCLIB", onSearch: runSearch)
+            }
+        }
+        .themedTint()
+        .task {
+            // Seed with what the track claims to be, which is what the automatic pass used.
+            query = [item.artist, item.title].filter { !$0.isEmpty }.joined(separator: " ")
+            await search(query)
+        }
+    }
+
+    private func runSearch() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return }
+        Task { await search(q) }
+    }
+
+    private func search(_ q: String) async {
+        loading = true
+        failed = false
+        do { candidates = try await LRCLibClient().candidates(query: q) }
+        catch { candidates = []; failed = true }
+        loading = false
+    }
+
+    /// Attach, sidecar, and push it into the running player so the lyrics button lights up
+    /// without waiting for the next load.
+    private func apply(_ c: LRCLibClient.Candidate) {
+        library.attachLyrics(c.raw, to: item)
+        if let url = player.current?.url {
+            player.attach(lyrics: LRCParser.parse(c.raw), artwork: nil, forURL: url)
+        }
+        dismiss()
     }
 }
 

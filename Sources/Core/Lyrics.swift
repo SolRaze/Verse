@@ -94,9 +94,57 @@ struct LRCLibClient {
     var userAgent = "Verse/1.0 (personal media player)"
 
     private struct Response: Decodable {
+        let id: Int?
+        let trackName: String?
+        let artistName: String?
+        let albumName: String?
         let syncedLyrics: String?
         let plainLyrics: String?
         let duration: Double?
+    }
+
+    /// One search hit, for the manual lyrics finder (#6g). The automatic path silently picks a
+    /// single best match; a human choosing needs to see what the alternatives are, and needs the
+    /// raw LRC text carried along so picking one can attach it without a second round trip.
+    struct Candidate: Identifiable, Sendable, Equatable {
+        var id: Int
+        var track: String
+        var artist: String
+        var album: String
+        var duration: Double?
+        var synced: Bool
+        var raw: String
+
+        /// "Kanye West · Graduation · 3:52 · Synced"
+        var detail: String {
+            var parts = [artist]
+            if !album.isEmpty { parts.append(album) }
+            if let d = duration, d > 0 {
+                parts.append(String(format: "%d:%02d", Int(d) / 60, Int(d) % 60))
+            }
+            parts.append(synced ? "Synced" : "Plain")
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    /// Free-text search returning every hit, in LRCLIB's own relevance order. LRCLIB's `q`
+    /// already matches artist as well as track, so the artist pivot (#6d) is native here —
+    /// typing "Kanye" returns that artist's songs.
+    func candidates(query: String) async throws -> [Candidate] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return [] }
+        var c = URLComponents(string: "https://lrclib.net/api/search")!
+        c.queryItems = [URLQueryItem(name: "q", value: q)]
+        let (data, resp) = try await session.data(for: request(c.url!))
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        return try JSONDecoder().decode([Response].self, from: data).compactMap { r in
+            // A hit with neither synced nor plain text is nothing to attach.
+            let raw = r.syncedLyrics ?? r.plainLyrics ?? ""
+            guard !raw.isEmpty, let id = r.id else { return nil }
+            return Candidate(id: id, track: r.trackName ?? "", artist: r.artistName ?? "",
+                             album: r.albumName ?? "", duration: r.duration,
+                             synced: !(r.syncedLyrics ?? "").isEmpty, raw: raw)
+        }
     }
 
     struct Query {

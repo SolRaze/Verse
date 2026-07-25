@@ -576,17 +576,39 @@ struct AlbumPage: View {
 }
 
 /// Sort orders the finder search bar offers (#6e).
+/// Not every case suits every surface — album finders offer album/artist/year, the lyrics finder
+/// offers title/artist/duration — so each sheet passes the subset it wants rather than relying on
+/// `allCases`.
 enum FinderSort: String, CaseIterable, Identifiable {
     case relevance = "Relevance", album = "Album", artist = "Artist", year = "Year"
+    case title = "Title", duration = "Duration"
     var id: String { rawValue }
 
-    /// Relevance is MusicBrainz's own ranking, so it means "leave the order alone".
+    static let albumOptions: [FinderSort] = [.relevance, .album, .artist, .year]
+    static let songOptions: [FinderSort] = [.relevance, .title, .artist, .duration]
+
+    /// Relevance is the service's own ranking, so it means "leave the order alone".
     func apply(_ list: [MetadataScraper.AlbumCandidate]) -> [MetadataScraper.AlbumCandidate] {
         switch self {
+        case .album, .title:
+            list.sorted { $0.album.localizedStandardCompare($1.album) == .orderedAscending }
+        case .artist:
+            list.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
+        case .year, .duration:
+            list.sorted { ($0.year ?? "") > ($1.year ?? "") }   // newest first, undated last
         case .relevance: list
-        case .album: list.sorted { $0.album.localizedStandardCompare($1.album) == .orderedAscending }
-        case .artist: list.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
-        case .year: list.sorted { ($0.year ?? "") > ($1.year ?? "") }   // newest first, undated last
+        }
+    }
+
+    func apply(_ list: [LRCLibClient.Candidate]) -> [LRCLibClient.Candidate] {
+        switch self {
+        case .title, .album:
+            list.sorted { $0.track.localizedStandardCompare($1.track) == .orderedAscending }
+        case .artist:
+            list.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
+        case .duration, .year:
+            list.sorted { ($0.duration ?? 0) < ($1.duration ?? 0) }
+        case .relevance: list
         }
     }
 }
@@ -598,9 +620,10 @@ struct FinderSearchBar: View {
     @Binding var query: String
     @Binding var sort: FinderSort
     @Binding var matchingOnly: Bool
-    /// Only the album finders can filter on track count; the lyrics finder has no folder to
-    /// compare against.
-    var showMatchFilter = true
+    /// What the filter toggle means differs per surface — track count on the album finders,
+    /// synced-only on the lyrics finder — so the label travels with it.
+    var filterLabel = "Only my track count"
+    var sortOptions: [FinderSort] = FinderSort.albumOptions
     var placeholder = "Search MusicBrainz"
     let onSearch: () -> Void
 
@@ -608,12 +631,10 @@ struct FinderSearchBar: View {
         HStack(spacing: 12) {
             Menu {
                 Picker("Sort", selection: $sort) {
-                    ForEach(FinderSort.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(sortOptions) { Text($0.rawValue).tag($0) }
                 }
-                if showMatchFilter {
-                    Divider()
-                    Toggle("Only my track count", isOn: $matchingOnly)
-                }
+                Divider()
+                Toggle(filterLabel, isOn: $matchingOnly)
             } label: {
                 Image(systemName: matchingOnly
                     ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
