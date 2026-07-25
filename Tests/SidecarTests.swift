@@ -50,4 +50,35 @@ final class SidecarTests: XCTestCase {
         XCTAssertEqual(again.id, first.id)            // identity survived
         XCTAssertEqual(again.playCount, 6)            // in-app history beats the sidecar's
     }
+
+    /// #6c: a hand-edited field is frozen against auto-fetch, and the freeze rides the sidecar —
+    /// if it didn't, a re-import would forget it and the next online pass would undo the edit.
+    func testFrozenFieldsSurviveTheSidecar() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("FreezeTest-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        try Data("not really audio".utf8).write(to: root.appendingPathComponent("Nobody - Frozen.mp3"))
+        try Data(#"{"title":"Kept Title","artist":"Kept Artist","album":"Kept Album","frozenFields":["title","album"]}"#.utf8)
+            .write(to: root.appendingPathComponent("Nobody - Frozen.verse.json"))
+
+        let store = LibraryStore()
+        let rootName = root.lastPathComponent
+        defer { store.removeFolder([rootName]) }
+
+        store.add(pickedURLs: [root])
+        let item = try XCTUnwrap(store.items.first { $0.folders == [rootName] })
+        XCTAssertTrue(item.isFrozen(.title))
+        XCTAssertTrue(item.isFrozen(.album))
+        XCTAssertFalse(item.isFrozen(.artist))    // untouched fields still take online metadata
+        XCTAssertFalse(item.isFrozen(.artwork))
+    }
+
+    /// An old sidecar has no `frozenFields` key at all; it must still decode, with nothing frozen.
+    func testSidecarWithoutFrozenFieldsDecodes() throws {
+        let json = #"{"title":"T","artist":"A"}"#
+        let tags = try JSONDecoder().decode(SidecarTags.self, from: Data(json.utf8))
+        XCTAssertNil(tags.frozenFields)
+    }
 }

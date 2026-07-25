@@ -60,6 +60,9 @@ enum Pref {
         }
     }
     static let onlineMetadata = "metadata.online"
+    /// #6b: skip re-searching anything already found (tags, artwork, lyrics). ON by default —
+    /// re-querying what you already have is the slow, rate-limited half of a fetch run.
+    static let skipAlreadyFound = "metadata.skipFound"
     static let metadataExcludedFolders = "metadata.excludedFolders"  // newline-joined root names
 
     /// Accent swatches offered before the custom picker ("a group like the icon
@@ -76,6 +79,7 @@ enum Pref {
             sponsorBlock: true, lyricsSize: 22.0,
             homeSections: "now,playlists,albums,tracks",
             librarySections: librarySectionsDefault,
+            skipAlreadyFound: true,
             likeGlyph: "heart",
         ])
     }
@@ -304,6 +308,7 @@ struct SettingsView: View {
 struct MetadataSettingsView: View {
     @EnvironmentObject var library: LibraryStore
     @AppStorage(Pref.onlineMetadata) private var onlineMetadata = false
+    @AppStorage(Pref.skipAlreadyFound) private var skipFound = true
     @AppStorage(Pref.showFilePaths) private var showFilePaths = false
     @AppStorage(Pref.metadataExcludedFolders) private var excludedCSV = ""
 
@@ -322,6 +327,12 @@ struct MetadataSettingsView: View {
                 Toggle("Online Metadata", isOn: $onlineMetadata)
             } footer: {
                 Text("Looks up album, artist and high-res cover art via MusicBrainz on import and rescan. The Fetch buttons below always go online regardless. Off by default — no network unless you ask.")
+            }
+
+            Section {
+                Toggle("Skip What's Already Found", isOn: $skipFound)
+            } footer: {
+                Text("Leaves tracks that already have metadata, artwork or lyrics alone instead of searching for them again. They still appear in the fetch review — just marked as found.")
             }
 
             Section {

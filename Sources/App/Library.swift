@@ -2,6 +2,23 @@ import AVFoundation
 import Foundation
 import UIKit
 
+/// The metadata fields a user can hand-edit and therefore freeze against auto-fetch (#6c).
+enum MetaField: String, CaseIterable, Identifiable {
+    case title, artist, album, trackNumber, discNumber, artwork
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .title: "Title"
+        case .artist: "Artist"
+        case .album: "Album"
+        case .trackNumber: "Track number"
+        case .discNumber: "Disc number"
+        case .artwork: "Artwork"
+        }
+    }
+}
+
 struct LibraryItem: Codable, Identifiable, Hashable {
     enum Source: Codable, Hashable {
         case file(bookmark: Data)       // security-scoped bookmark, never a path
@@ -45,6 +62,14 @@ struct LibraryItem: Codable, Identifiable, Hashable {
     /// Heart from the player's burger menu. Defaulted so older libraries decode cleanly.
     var liked: Bool = false
 
+    /// Fields the user edited by hand, which the online passes must never overwrite (#6c). The
+    /// freeze is PER FIELD, not per item: correcting a title still lets the album lookup fill in
+    /// the artwork and track numbers. Keys are `MetaField` raw values; defaulted for old
+    /// libraries.
+    var frozenFields: Set<String> = []
+
+    func isFrozen(_ field: MetaField) -> Bool { frozenFields.contains(field.rawValue) }
+
     /// YouTube items get a free thumbnail from the video id; local files show an icon.
     var thumbnailURL: URL? {
         guard case let .youtube(watchURL) = source else { return nil }
@@ -69,6 +94,9 @@ struct SidecarTags: Codable {
     var lastPlayed: Date?
     var trackNumber: Int?
     var discNumber: Int?
+    /// Hand-edited fields ride the sidecar too (#6c) — otherwise a re-import would forget the
+    /// freeze and the next auto pass would undo the user's corrections.
+    var frozenFields: [String]?
 
     static func url(besides mediaURL: URL) -> URL {
         mediaURL.deletingPathExtension()
@@ -427,8 +455,15 @@ final class LibraryStore: ObservableObject {
             return true
         }
         let groups = Dictionary(grouping: eligible, by: \.albumKey)
+        let skipFound = UserDefaults.standard.bool(forKey: Pref.skipAlreadyFound)
         var hits = 0, misses = 0, skipped = 0
         for (albumName, groupItems) in groups {
+            // #6b: a folder where every track already has what this pass would fetch costs a
+            // rate-limited round trip to learn nothing. Skip it unless the user asked not to.
+            if skipFound, groupItems.allSatisfy({ complete($0, wantTags: wantTags, wantArt: wantArt) }) {
+                skipped += groupItems.count
+                continue
+            }
             if groupItems.count >= 2, !albumName.isEmpty {
                 rescanStatus = "Album · \(albumName)"
                 let artist = Self.commonArtist(groupItems)
@@ -465,6 +500,15 @@ final class LibraryStore: ObservableObject {
 
     private enum FetchOutcome { case hit, miss, skip }
 
+    /// Does this track already hold everything the pass would look for? A frozen field counts as
+    /// complete — the pass is not allowed to touch it either way (#6b, #6c).
+    private func complete(_ item: LibraryItem, wantTags: Bool, wantArt: Bool) -> Bool {
+        let tagsDone = !wantTags || !item.album.isEmpty || item.isFrozen(.album)
+        let artDone = !wantArt
+            || Artwork.image(for: item.id.uuidString) != nil || item.isFrozen(.artwork)
+        return tagsDone && artDone
+    }
+
     /// Single-track (or tagless-folder) lookup via MusicBrainz recording search — the pre-album
     /// path, kept for genuine singles.
     private func fetchSingle(_ item: LibraryItem, wantTags: Bool, wantArt: Bool,
@@ -482,10 +526,15 @@ final class LibraryStore: ObservableObject {
                   title: current.title, artist: current.artist,
                   filename: url.deletingPathExtension().lastPathComponent) else { return .miss }
         if wantTags {
-            if current.artist.isEmpty, !found.artist.isEmpty { current.artist = found.artist }
-            if current.album.isEmpty, let a = found.album, !a.isEmpty { current.album = a }
+            // #6c: a hand-edited field is never overwritten, even by an explicit Fetch.
+            if current.artist.isEmpty, !found.artist.isEmpty, !current.isFrozen(.artist) {
+                current.artist = found.artist
+            }
+            if current.album.isEmpty, let a = found.album, !a.isEmpty, !current.isFrozen(.album) {
+                current.album = a
+            }
         }
-        if needArt, let cover = found.coverImage {
+        if needArt, !current.isFrozen(.artwork), let cover = found.coverImage {
             Artwork.invalidate(key: item.id.uuidString)
             Artwork.store(image: cover, key: item.id.uuidString)
             artworkVersion += 1
@@ -512,11 +561,20 @@ final class LibraryStore: ObservableObject {
         for (i, item) in files.enumerated() {
             var current = items.first { $0.id == item.id } ?? item
             if wantTags {
-                if !candidate.album.isEmpty { current.album = candidate.album }
-                if current.artist.isEmpty, !candidate.artist.isEmpty { current.artist = candidate.artist }
-                if let m = matches[i] { current.trackNumber = m.track; current.discNumber = m.disc }
+                // #6c: hand-edited fields survive an album apply, field by field.
+                if !candidate.album.isEmpty, !current.isFrozen(.album) {
+                    current.album = candidate.album
+                }
+                if current.artist.isEmpty, !candidate.artist.isEmpty, !current.isFrozen(.artist) {
+                    current.artist = candidate.artist
+                }
+                if let m = matches[i] {
+                    if !current.isFrozen(.trackNumber) { current.trackNumber = m.track }
+                    if !current.isFrozen(.discNumber) { current.discNumber = m.disc }
+                }
             }
-            let needArt = wantArt && (force || Artwork.image(for: item.id.uuidString) == nil)
+            let needArt = wantArt && !current.isFrozen(.artwork)
+                && (force || Artwork.image(for: item.id.uuidString) == nil)
             if needArt, let cover {
                 Artwork.invalidate(key: item.id.uuidString)
                 Artwork.store(image: cover, key: item.id.uuidString)
@@ -578,8 +636,15 @@ final class LibraryStore: ObservableObject {
     /// so "nothing found" tracks retry.
     private func lyricsPass(force: Bool) async {
         let total = items.count
+        let skipFound = UserDefaults.standard.bool(forKey: Pref.skipAlreadyFound)
         for (n, item) in items.enumerated() {
             guard case .file = item.source, let url = resolveURL(item) else { continue }
+            // #6b: non-empty cache = lyrics already found. An empty cache file is a remembered
+            // miss, which a forced run is specifically meant to retry.
+            if skipFound, !force,
+               (LyricsResolver.cachedRaw(for: item.id.uuidString) ?? "").isEmpty == false {
+                continue
+            }
             rescanStatus = "Lyrics \(n + 1)/\(total) · \(item.title)"
             if force { LyricsResolver.invalidateNegative(cacheKey: item.id.uuidString) }
             let scoped = url.startAccessingSecurityScopedResource()
@@ -665,7 +730,9 @@ final class LibraryStore: ObservableObject {
                                album: item.album.isEmpty ? nil : item.album,
                                playCount: item.playCount > 0 ? item.playCount : nil,
                                lastPlayed: item.lastPlayed,
-                               trackNumber: item.trackNumber, discNumber: item.discNumber)
+                               trackNumber: item.trackNumber, discNumber: item.discNumber,
+                               frozenFields: item.frozenFields.isEmpty
+                                   ? nil : Array(item.frozenFields).sorted())
         let tagURL = tmp.appendingPathComponent(base + ".verse.json")
         if let data = try? JSONEncoder().encode(tags), (try? data.write(to: tagURL)) != nil {
             urls.append(tagURL)
@@ -845,6 +912,7 @@ final class LibraryStore: ObservableObject {
             }
             if let t = tags.trackNumber { item.trackNumber = t }
             if let d = tags.discNumber { item.discNumber = d }
+            if let frozen = tags.frozenFields { item.frozenFields = Set(frozen) }
         }
 
         items.append(item)
@@ -946,7 +1014,9 @@ final class LibraryStore: ObservableObject {
                                album: item.album.isEmpty ? nil : item.album,
                                playCount: item.playCount > 0 ? item.playCount : nil,
                                lastPlayed: item.lastPlayed,
-                               trackNumber: item.trackNumber, discNumber: item.discNumber)
+                               trackNumber: item.trackNumber, discNumber: item.discNumber,
+                               frozenFields: item.frozenFields.isEmpty
+                                   ? nil : Array(item.frozenFields).sorted())
         // User-picked sidecar folder wins (Settings › Metadata Location).
         if let media = resolveURL(item), let (base, release) = sidecarBase(for: media) {
             defer { release() }

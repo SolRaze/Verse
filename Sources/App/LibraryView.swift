@@ -994,6 +994,9 @@ struct EditItemSheet: View {  // shared with the collection pages' hold menus
     /// number", which a numeric binding can't express.
     @State private var trackText = ""
     @State private var discText = ""
+    /// What the fields held on open, so Save can tell which ones the user actually touched and
+    /// freeze only those (#6c).
+    @State private var original: LibraryItem?
 
     var body: some View {
         NavigationStack {
@@ -1007,19 +1010,27 @@ struct EditItemSheet: View {  // shared with the collection pages' hold menus
                     TextField("Track number", text: $trackText).keyboardType(.numberPad)
                     TextField("Disc number", text: $discText).keyboardType(.numberPad)
                 } footer: {
-                    Text("Leave a field blank to clear it.")
+                    Text("Leave a field blank to clear it. A field you edit here stops being "
+                         + "overwritten by online metadata.")
+                }
+                if !item.frozenFields.isEmpty {
+                    Section("Kept from online metadata") {
+                        ForEach(MetaField.allCases.filter { item.frozenFields.contains($0.rawValue) }) { f in
+                            HStack {
+                                Text(f.label)
+                                Spacer()
+                                Button("Unlock") { item.frozenFields.remove(f.rawValue) }
+                                    .buttonStyle(.borderless).font(.caption)
+                            }
+                        }
+                    }
                 }
             }
             .navigationTitle("Edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        item.trackNumber = Int(trackText.trimmingCharacters(in: .whitespaces))
-                        item.discNumber = Int(discText.trimmingCharacters(in: .whitespaces))
-                        library.update(item)
-                        dismiss()
-                    }
+                    Button("Save") { save() }
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -1031,6 +1042,27 @@ struct EditItemSheet: View {  // shared with the collection pages' hold menus
         .onAppear {
             trackText = item.trackNumber.map(String.init) ?? ""
             discText = item.discNumber.map(String.init) ?? ""
+            original = item
         }
+    }
+
+    /// Freeze exactly the fields that changed (#6c) — an untouched field keeps taking online
+    /// metadata, so correcting one typo doesn't opt the whole track out of fetching.
+    private func save() {
+        item.trackNumber = Int(trackText.trimmingCharacters(in: .whitespaces))
+        item.discNumber = Int(discText.trimmingCharacters(in: .whitespaces))
+        if let was = original {
+            if item.title != was.title { item.frozenFields.insert(MetaField.title.rawValue) }
+            if item.artist != was.artist { item.frozenFields.insert(MetaField.artist.rawValue) }
+            if item.album != was.album { item.frozenFields.insert(MetaField.album.rawValue) }
+            if item.trackNumber != was.trackNumber {
+                item.frozenFields.insert(MetaField.trackNumber.rawValue)
+            }
+            if item.discNumber != was.discNumber {
+                item.frozenFields.insert(MetaField.discNumber.rawValue)
+            }
+        }
+        library.update(item)
+        dismiss()
     }
 }
