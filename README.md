@@ -1,48 +1,51 @@
 # Verse
 
-Personal media player for iPhone (iOS 26). Sideload-only, single-user. Plays every format,
-imports YouTube / Spotify / SoundCloud playlists, shows synced lyrics, and lands on the
-CarPlay Now Playing screen.
+my media player for iphone (ios 26) bro. sideload only, single user, and that user is me. plays
+every format, imports youtube / spotify / soundcloud playlists, shows synced lyrics, and lands on
+the carplay now playing screen. apple music does less than this and takes your money for it.
 
-## Features
+## what it does
 
-- One VLC engine for all audio and video — mp3, flac, opus, ogg, ape, mkv, anything
-- Synced lyrics: sidecar `.lrc` → embedded tags → LRCLIB, cached on disk
-- Per-line lyrics as a Lock Screen Live Activity
-- YouTube streaming with SponsorBlock segment skipping
-- Playlist import from YouTube, Spotify and SoundCloud — no API keys
-- Folder-based library (the folder tree is the organization), play counts, favourites
-- Mini player pill, waveform scrubber drawn from decoded audio, full-range accent colour
-- Widget + lock screen / CarPlay transport controls
+- one vlc engine for all audio and video — mp3, flac, opus, ogg, ape, mkv, whatever you throw at it
+- synced lyrics: sidecar `.lrc` → embedded tags → LRCLIB, cached on disk so the car never waits
+- per line lyrics on the lock screen as a live activity, karaoke in your pocket
+- youtube streaming with sponsorblock skipping the sponsor reads for you
+- playlist import from youtube, spotify and soundcloud, no api keys, no accounts, nothing
+- folder based library — the folder tree IS the organization, plus play counts and favourites
+- mini player pill, waveform scrubber drawn from real decoded audio not a fake bar, full range
+  accent colour
+- widget + lock screen / carplay transport controls
 
-## CarPlay
+## carplay, read this before you argue with me
 
-- With no entitlement, an audio app reaches CarPlay only via the Now Playing screen:
-  `AVAudioSession(.playback)` + `MPNowPlayingInfoCenter` + `MPRemoteCommandCenter` provide
-  transport, scrubber, metadata and artwork. That is Verse's entire CarPlay surface.
-- A CarPlay browse UI requires the `com.apple.developer.carplay-audio` entitlement, granted
-  per-app by Apple. Out of reach for a sideloaded app; nothing here depends on it.
-- Video on the car screen ("AirPlay video in the car", iOS 26) has three system-enforced
-  constraints: parked only, the car must support the MFi capability (nearly none do as of
-  mid-2026), and the media must use AVPlayer external playback — VLC decodes locally and
-  cannot qualify. `Sources/Core/AirPlayVideo.swift` routes AVPlayer-compatible content
-  (mp4/mov/HLS, including extracted YouTube streams) there; everything else stays on the phone.
-- In-car lyrics: an optional setting shows the current line in the artist text field. CarPlay
-  does not render Live Activities.
+- with no entitlement an audio app reaches carplay ONLY thro the now playing screen:
+  `AVAudioSession(.playback)` + `MPNowPlayingInfoCenter` + `MPRemoteCommandCenter` give you
+  transport, scrubber, metadata and artwork. thats the entire carplay surface, thats it, dont go
+  looking for more.
+- a carplay browse ui needs the `com.apple.developer.carplay-audio` entitlement and apple hands
+  that out per app like its gold. never happening for a sideloaded app so nothing here depends on
+  it and nothing here should be built toward it.
+- video on the car screen ("airplay video in the car", ios 26) has three constraints the system
+  enforces, not me: parked only, the car has to support the mfi capability (basically none do as
+  of mid 2026), and the media has to use avplayer external playback — vlc decodes locally so it
+  cannot qualify, ever. `Sources/Core/AirPlayVideo.swift` routes the avplayer compatible stuff
+  (mp4/mov/HLS, extracted youtube streams count) over there, everything else stays on the phone.
+- in car lyrics: theres an optional setting that shoves the current line into the artist text
+  field. carplay does not render live activities, so thats the workaround and it works.
 
-## Legal / distribution
+## legal, or whatever
 
-- YouTube stream extraction violates YouTube's Terms of Service; App Store distribution is
-  impossible. Sideload-only, personal use.
-- Extraction breaks whenever YouTube rotates its signature cipher — `YouTubeKit` needs a bump
-  every few months. Failed extraction surfaces as a visible error, not a crash.
-- Free Apple ID signing lasts 7 days per install (AltStore/SideStore automate re-signing);
-  the paid Developer Program signs for a year.
+- youtube stream extraction breaks youtubes terms of service, so app store distribution is
+  impossible. sideload only, personal use, i dont care.
+- extraction breaks every time youtube rotates its signature cipher — `YouTubeKit` needs a bump
+  every few months. when it fails it shows a visible error, it does not crash.
+- free apple id signing dies after 7 days per install (altstore/sidestore re-sign it for you), the
+  paid developer program signs for a year.
 
-## Building
+## building it
 
-Requirements: Mac with Xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen), an
-Apple ID (free works), an iPhone on iOS 26+.
+you need a mac with xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen), an apple id
+(free one works fine), and an iphone on ios 26+.
 
 ```sh
 brew install xcodegen
@@ -51,8 +54,8 @@ xcodegen generate     # writes Verse.xcodeproj; SPM pulls VLCKit + YouTubeKit on
 open Verse.xcodeproj
 ```
 
-Team + bundle id belong in `project.yml` (or change signing in Xcode after generating).
-Run from Xcode with a phone selected, or from the CLI:
+team + bundle id go in `project.yml`, or just change signing in xcode after generating. run it
+from xcode with a phone selected, or from the cli:
 
 ```sh
 xcodebuild -scheme Verse -destination 'platform=iOS,id=<device-udid>' \
@@ -61,10 +64,10 @@ xcrun devicectl device install app --device <device-udid> \
   ~/Library/Developer/Xcode/DerivedData/Verse-*/Build/Products/Debug-iphoneos/Verse.app
 ```
 
-`xcrun devicectl list devices` prints the udid. Dependencies are pure SPM — no CocoaPods,
-no workspace.
+`xcrun devicectl list devices` gives you the udid. dependencies are pure spm — no cocoapods, no
+workspace, none of that mess.
 
-## Layout
+## where stuff is
 
 | File | What it is |
 |---|---|
@@ -72,4 +75,4 @@ no workspace.
 | `Sources/Core/NowPlaying.swift` | CarPlay / lock-screen surface + Live Activity lyrics. |
 | `Sources/Core/Lyrics.swift` | LRC parser + LRCLIB client + embedded-tag fallback. |
 | `Sources/Core/AirPlayVideo.swift` | AVPlayer path — the only route video takes to the car screen. |
-| `SPEC.md` | Full project brief. |
+| `SPEC.md` | the full brief, read it before touching anything. |
