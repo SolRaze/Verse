@@ -1,8 +1,8 @@
 # screenshots
 
-simulator captures (iphone 17 pro, ios 26.5) of the 2026-07-21 work, app version 1.0. taken
-against a seeded 3 album library (yeezus / graduation / discovery) with solid colour placeholder
-covers, so dont expect real artwork in these.
+simulator shots (iphone 17 pro, ios 26.5) of the 2026-07-21 work, app version 1.0. seeded 3 album
+library (yeezus / graduation / discovery) with solid colour placeholder covers, so no real artwork
+in these.
 
 | File | Shows |
 |------|-------|
@@ -11,7 +11,6 @@ covers, so dont expect real artwork in these.
 | `metadata-finder.png` | Metadata finder sheet — a live MusicBrainz call returning real *Discovery* release candidates (2001 / 2005 reissue). |
 | `create-tab.png` | The Create tab placeholder. |
 
-**stale, heads up:** `home-albums-shelf.png` and `create-tab.png` were shot while create was still
-a dock tab. create got moved off the dock into a hidden page after that (triple tap the home title
-to unlock it, then swipe right to open), so the dock in those two shots doesnt match the shipped
-build anymore.
+stale: `home-albums-shelf.png` and `create-tab.png` were shot while create was still a dock tab.
+create moved off the dock into a hidden page after that (triple tap the home title to unlock, swipe
+right to open), so the dock in those two dont match the build anymore.
