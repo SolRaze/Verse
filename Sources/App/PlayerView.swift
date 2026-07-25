@@ -1,5 +1,6 @@
 import SwiftUI
 import MediaPlayer
+import UIKit
 
 struct PlayerView: View {
     @EnvironmentObject var coordinator: Coordinator
@@ -21,6 +22,7 @@ private struct NowPlayingPane: View {
     @State private var showLyrics = false
     @State private var infoItem: LibraryItem?
     @State private var showQueue = false
+    @State private var showReactions = false
 
     private var hasLyrics: Bool {
         guard let l = player.lyrics else { return false }
@@ -58,7 +60,6 @@ private struct NowPlayingPane: View {
                     transport
                     volumeRow.padding(.top, 4)
                     bottomRow
-                    shareRow.padding(.top, 10)
 
                     Spacer(minLength: 0)
                 }
@@ -70,7 +71,8 @@ private struct NowPlayingPane: View {
         .preferredColorScheme(.dark)
     }
 
-    /// Top: just the options (•••) menu, top right, glass. Minimize is gone — the sheet's own
+    /// Top: just the options (•••) menu, top right. This is the ONLY glass control on the player
+    /// — the bottom row and the favourite are bare. Minimize is gone; the sheet's own
     /// swipe-down dismiss covers it (#3).
     private var topBar: some View {
         HStack {
@@ -108,29 +110,35 @@ private struct NowPlayingPane: View {
         }
     }
 
-    /// Tap = like/unlike the current track; hold = pick one of five glyphs the button wears
-    /// (#3, `Pref.likeGlyph`). Sits where the options menu used to, right of the title.
+    /// Tap = like/unlike the current track; hold = the reaction strip, which picks the glyph the
+    /// button wears (`Pref.likeGlyph`). Bare, no glass — glass is the top options button only
+    ///. Sits where the options menu used to, right of the title.
     private var favouriteButton: some View {
         let item = coordinator.nowPlayingItem
         let liked = item.map { i in library.items.first { $0.id == i.id }?.liked ?? i.liked } ?? false
-        return Menu {
-            Picker("Icon", selection: $likeGlyph) {
-                ForEach(Pref.likeGlyphs, id: \.self) { g in
-                    Label(g.replacingOccurrences(of: ".", with: " ").capitalized, systemImage: g).tag(g)
-                }
+        return Image(systemName: liked ? "\(likeGlyph).fill" : likeGlyph)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(liked ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.8)))
+            .frame(width: 34, height: 34)
+            // A Menu can't host a custom row of glyphs, so tap and hold are wired by hand.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard var it = item else { return }
+                it.liked.toggle()
+                library.update(it)
             }
-        } label: {
-            Image(systemName: liked ? "\(likeGlyph).fill" : likeGlyph)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(liked ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.8)))
-                .frame(width: 34, height: 34)
-                .glassEffect(.regular.interactive())
-        } primaryAction: {
-            guard var it = item else { return }
-            it.liked.toggle()
-            library.update(it)
-        }
-        .disabled(item == nil)
+            .onLongPressGesture(minimumDuration: 0.4) {
+                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                showReactions = true
+            }
+            .opacity(item == nil ? 0.35 : 1)
+            .allowsHitTesting(item != nil)
+            .popover(isPresented: $showReactions) {
+                ReactionStrip(selected: $likeGlyph) { showReactions = false }
+                    // Without this a popover becomes a half-height sheet on iPhone, which is far
+                    // too much chrome for one row of glyphs.
+                    .presentationCompactAdaptation(.popover)
+            }
     }
 
     /// System volume, below the transport (#1). MPVolumeView drives the real hardware volume;
@@ -144,17 +152,19 @@ private struct NowPlayingPane: View {
         .padding(.horizontal, 8)
     }
 
-    /// Share the current track's URL, below the bottom-row icons (#2). Pulled out of the options
-    /// menu into its own glass button.
-    @ViewBuilder private var shareRow: some View {
+    /// Share the current track's URL. Lives *in* the bottom row beside the four options now
+    ///, not on a row of its own, and carries no glass.
+    @ViewBuilder private var shareButton: some View {
         if let item = coordinator.nowPlayingItem, let url = shareURL(item) {
             ShareLink(item: url) {
-                Label("Share", systemImage: "square.and.arrow.up")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 18).padding(.vertical, 9)
-                    .glassEffect(.regular.interactive())
+                Image(systemName: "square.and.arrow.up")
+                    .font(.body)
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
             }
+        } else {
+            // Hold the slot so the other four don't shuffle sideways when sharing isn't possible.
+            Color.clear.frame(width: 34, height: 34)
         }
     }
 
@@ -201,8 +211,8 @@ private struct NowPlayingPane: View {
         .padding(.top, 12)
     }
 
-    /// Apple Music's bottom row: lyrics, sleep timer, AirPlay, queue — glass circles to match the
-    /// top controls (#6).
+    /// Apple Music's bottom row: lyrics, sleep timer, AirPlay, queue — plus Share, which used to
+    /// sit on its own row below. Plain glyphs, no glass (glass is the top button only).
     private var bottomRow: some View {
         HStack {
             Button { withAnimation(.snappy) { showLyrics = true } } label: {
@@ -210,7 +220,6 @@ private struct NowPlayingPane: View {
                     .font(.body)
                     .foregroundStyle(hasLyrics ? .white : .white.opacity(0.25))
                     .frame(width: 34, height: 34)
-                    .glassEffect(.regular.interactive())
             }
             .disabled(!hasLyrics)
             Spacer()
@@ -218,17 +227,18 @@ private struct NowPlayingPane: View {
             Spacer()
             AirPlayButton()
                 .frame(width: 34, height: 34)
-                .glassEffect(.regular.interactive())
             Spacer()
             Button { showQueue = true } label: {
                 Image(systemName: "list.bullet")
                     .font(.body)
                     .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
-                    .glassEffect(.regular.interactive())
             }
+            Spacer()
+            shareButton
         }
-        .padding(.horizontal, 32)
+        // 24, not 32: five icons need the extra width the old four didn't.
+        .padding(.horizontal, 24)
         .padding(.top, 6)
     }
 
@@ -249,7 +259,6 @@ private struct NowPlayingPane: View {
                 .font(.body)
                 .foregroundStyle(coordinator.sleepMinutes != nil ? .white : .white.opacity(0.6))
                 .frame(width: 34, height: 34)
-                .glassEffect(.regular.interactive())
         }
     }
 
@@ -309,6 +318,49 @@ private struct NowPlayingPane: View {
     }
 }
 
+/// The reaction picker: one horizontal row of glyphs, no names. The chosen glyph wears
+/// the glass bubble, the rest are bare, and the row scrolls — swipe it for the reactions past the
+/// edge. Held off the player's favourite button.
+private struct ReactionStrip: View {
+    @Binding var selected: String
+    let onPick: () -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Pref.likeGlyphs, id: \.self) { glyph in
+                    Button {
+                        selected = glyph
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onPick()
+                    } label: {
+                        glyphView(glyph)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+        }
+        // Roughly five glyphs wide, so there is visibly more to swipe to.
+        .frame(width: 260, height: 56)
+    }
+
+    /// Glass only on the selected one — that bubble IS the selection indicator, so it can't be
+    /// applied unconditionally.
+    @ViewBuilder private func glyphView(_ glyph: String) -> some View {
+        let chosen = glyph == selected
+        let icon = Image(systemName: chosen ? "\(glyph).fill" : glyph)
+            .font(.title3)
+            .foregroundStyle(chosen ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.7)))
+            .frame(width: 42, height: 42)
+        if chosen {
+            icon.glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            icon
+        }
+    }
+}
+
 /// Fullscreen lyrics, Files-app player shaped: close top right, a bare scrubber (no transport on
 /// it), play bottom left, queue bottom right, with the track pill staying visible above the bar.
 private struct LyricsScreen: View {
@@ -360,7 +412,8 @@ private struct LyricsScreen: View {
                          duration: player.duration) { player.seek(to: $0) }
                 .frame(height: 30)
                 .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(.white.opacity(0.08), in: Capsule())
+                // Glass, not a flat white wash — matches the pill language elsewhere.
+                .glassEffect(.regular, in: Capsule())
                 .task(id: player.current?.url) {
                     samples = nil
                     if let url = player.current?.url { samples = await Waveform.load(url: url) }

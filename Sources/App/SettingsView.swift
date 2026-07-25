@@ -21,9 +21,13 @@ enum Pref {
     static let customSwatches = "appearance.customSwatches"  // comma-joined RRGGBB list
     static let likeGlyph = "player.likeGlyph"                // SF Symbol base for the favourite button
 
-    /// The five glyphs the player's favourite button can wear (hold it to pick). All have a
-    /// `.fill` variant for the liked state.
-    static let likeGlyphs = ["heart", "star", "bolt", "flame", "hand.thumbsup"]
+    /// The glyphs the player's favourite button can wear (hold it for the reaction strip, which
+    /// scrolls past the visible few). Every one has a `.fill` variant for the liked state — the
+    /// strip and the button both draw `<glyph>.fill` when lit, so a fill-less symbol would break.
+    static let likeGlyphs = [
+        "heart", "star", "bolt", "flame", "hand.thumbsup",
+        "crown", "moon", "sun.max", "drop", "leaf", "diamond", "face.smiling",
+    ]
 
     // Home shelves: ordered, enabled-only ids (hold a shelf header to move/remove; the
     // ellipsis menu adds). Replaces the old per-shelf bools.
