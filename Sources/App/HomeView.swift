@@ -82,6 +82,24 @@ struct HomeView: View {
             Text(sectionName(id))
             Spacer()
             if editingHome {
+                // Reorder, right next to the size pill. A List's sections can't be
+                // drag-reordered the way rows can, so explicit up/down is the honest control —
+                // .plain style on each so the two halves stay separately tappable inside a row.
+                HStack(spacing: 0) {
+                    Button { move(id, by: -1) } label: {
+                        Image(systemName: "chevron.up")
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                    }
+                    .buttonStyle(.plain)
+                    Button { move(id, by: 1) } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .background(.white.opacity(0.12), in: Capsule())
                 // Cycle small → medium → large, widget-resize spirit.
                 Button {
                     let next = switch size(of: id) {
@@ -366,49 +384,6 @@ struct HomeView: View {
             }
         }
     }
-}
-
-/// Standalone Home-shelf editor (#12): reached from the Library menu (above Settings). Adds,
-/// removes and reorders the Home shelves via the same `Pref.homeSections` CSV the Home tab's
-/// hold-to-edit uses, plus a suggestions list of shelves not on Home yet.
-struct HomeLayoutEditor: View {
-    @AppStorage(Pref.homeSections) private var sectionsCSV = "now,playlists,albums,tracks"
-    @Environment(\.dismiss) private var dismiss
-    @State private var ids: [String] = []
-
-    private func name(_ id: String) -> String {
-        HomeView.allSections.first { $0.id == id }?.name ?? id
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("On Home") {
-                    ForEach(ids, id: \.self) { id in Text(name(id)) }
-                        .onMove { ids.move(fromOffsets: $0, toOffset: $1); save() }
-                        .onDelete { ids.remove(atOffsets: $0); save() }
-                }
-                Section("Add to Home") {
-                    ForEach(HomeView.allSections.filter { !ids.contains($0.id) }, id: \.id) { s in
-                        Button { ids.append(s.id); save() } label: {
-                            Label("Add \(s.name)", systemImage: "plus.circle.fill")
-                        }
-                    }
-                    // Suggested-but-unbuilt shelves the user asked to surface here (#12).
-                    Label("Locations — coming soon", systemImage: "map")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .environment(\.editMode, .constant(.active))
-            .navigationTitle("Edit Home")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }
-        .themedTint()
-        .onAppear { ids = sectionsCSV.split(separator: ",").map(String.init) }
-    }
-
-    private func save() { sectionsCSV = ids.joined(separator: ",") }
 }
 
 /// Widget-shaped Now Playing card, shared by Home and the Queue sheet: cover, title,

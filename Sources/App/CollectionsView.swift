@@ -10,6 +10,9 @@ enum CollectionKind: String, CaseIterable, Hashable {
     case songs = "Songs"
     case favourites = "Favourites"
 
+    /// Stable key for `Pref.librarySections` — the display name may change, this can't.
+    var id: String { rawValue.lowercased() }
+
     var icon: String {
         switch self {
         case .playlists: "music.note.list"

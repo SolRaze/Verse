@@ -21,7 +21,9 @@ struct LibraryView: View {
     @State private var selection = Set<UUID>()
     @State private var editMode: EditMode = .inactive
     @State private var path = NavigationPath()
-    @State private var showHomeEditor = false
+    @State private var showLayoutEditor = false
+    /// Ordered, enabled-only Library root sections (Library › ••• › Edit Library).
+    @AppStorage(Pref.librarySections) private var sectionsCSV = Pref.librarySectionsDefault
 
     /// The link kinds the + menu offers. `host` seeds a hint; `addLink` still routes by URL.
     enum LinkSource: String, Identifiable {
@@ -53,9 +55,10 @@ struct LibraryView: View {
             // Plain, edge-to-edge, hairline separators inset under the label — 1:1 with
             // `Reference/music-library.png` (no grouped cards).
             .listStyle(.plain)
-            // #11: tighten the top collection rows to ~28pt. Taller rows (folders, recently-added
-            // thumbs) keep their natural height; only the text-only collection rows shrink.
-            .environment(\.defaultMinListRowHeight, 28)
+            // Tighten the top collection rows — but 28 was too tight, so 36: between
+            // Apple's 44 default and the old value. Taller rows keep their natural height; only
+            // the text-only collection rows shrink. Recently Added opts back out to 44 below.
+            .environment(\.defaultMinListRowHeight, 36)
             // No search here — the dock's search pill owns search now.
             // Same shape as Home: big label on top.
             .navigationTitle("Library")
@@ -108,9 +111,10 @@ struct LibraryView: View {
                         }
                         SortMenu()
                         Divider()
-                        // #12: edit the Home screen's shelves — sits just above Settings.
-                        Button { showHomeEditor = true } label: {
-                            Label("Edit Home Screen", systemImage: "square.grid.2x2")
+                        // Library's Edit is the LIBRARY's own layout, not Home's. (Home
+                        // is edited on Home, by its own Edit button.) Sits just above Settings.
+                        Button { showLayoutEditor = true } label: {
+                            Label("Edit Library", systemImage: "square.grid.2x2")
                         }
                         NavigationLink { SettingsView(embedded: true) } label: {
                             Label("Settings", systemImage: "gearshape")
@@ -182,21 +186,33 @@ struct LibraryView: View {
             .sheet(item: $editing) { item in EditItemSheet(item: item) }
             .sheet(item: $infoItem) { item in InfoSheet(item: item) }
             .sheet(item: $moveRequest) { req in MoveSheet(request: req) }
-            .sheet(isPresented: $showHomeEditor) { HomeLayoutEditor() }
+            .sheet(isPresented: $showLayoutEditor) { LibraryLayoutEditor() }
         }
         .preferredColorScheme(.dark)  // tint inherits from RootView (theme-aware)
     }
 
     // MARK: sections
 
+    /// The root, in the order Edit Library stores. Collection rows are emitted bare —
+    /// under `.listStyle(.plain)` a headerless Section and loose rows draw identically, and loose
+    /// rows are what let a collection row sit anywhere in the order.
     @ViewBuilder private var rootRows: some View {
-        collectionsSection
-        folderContents(path: [])          // top-level folders + loose items
-        recentlyAddedSection              // below the rest (#10 — was Recently Played)
+        ForEach(sectionIDs, id: \.self) { id in
+            switch id {
+            case "folders": folderContents(path: [])      // top-level folders + loose items
+            case "recentAdded": recentlyAddedSection
+            default:
+                if let kind = CollectionKind.allCases.first(where: { $0.id == id }) {
+                    collectionRow(kind)
+                }
+            }
+        }
     }
 
-    /// Recently Added, expanded inline below the collections and folders — the tracks most
-    /// recently imported, with the shared hold menu (#10, user misspoke and wanted Added).
+    private var sectionIDs: [String] { sectionsCSV.split(separator: ",").map(String.init) }
+
+    /// Recently Added, expanded inline — the tracks most recently imported, with the shared hold
+    /// menu (#10, user misspoke and wanted Added).
     @ViewBuilder private var recentlyAddedSection: some View {
         let recent = library.items
             .sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
@@ -204,7 +220,11 @@ struct LibraryView: View {
         if !recent.isEmpty {
             Section {
                 ForEach(recent) { item in
-                    Button { coordinator.play(item, in: recent) } label: { ItemRow(item: item) }
+                    Button { coordinator.play(item, in: recent) } label: {
+                        // Explicitly exempt from the list's tightened min row height:
+                        // these rows carry artwork and keep Apple's natural 44.
+                        ItemRow(item: item).frame(minHeight: 44)
+                    }
                         .tint(.primary)
                         .listRowInsets(.init(top: 0, leading: 20, bottom: 0, trailing: 20))
                         .contextMenu { ItemContextMenu(item: item, queue: recent, infoItem: $infoItem) }
@@ -219,23 +239,19 @@ struct LibraryView: View {
     /// playlists moved off the root into the Playlists page.
     /// Inlaid and compressed 1:1 to `Reference/music-library.png`: no card, no extra
     /// padding — Apple Music's ~52pt row — fixed icon column so the labels line up.
-    private var collectionsSection: some View {
-        Section {
-            ForEach(CollectionKind.allCases, id: \.self) { kind in
-                NavigationLink(value: kind) {
-                    Label {
-                        Text(kind.rawValue).font(.body)
-                    } icon: {
-                        Image(systemName: kind.icon)
-                            .font(.body)
-                            .foregroundStyle(.tint)
-                            .frame(width: 26)
-                    }
-                }
-                .listRowInsets(.init(top: 0, leading: 20, bottom: 0, trailing: 20))
-                .listRowSeparatorTint(.white.opacity(0.12))
+    private func collectionRow(_ kind: CollectionKind) -> some View {
+        NavigationLink(value: kind) {
+            Label {
+                Text(kind.rawValue).font(.body)
+            } icon: {
+                Image(systemName: kind.icon)
+                    .font(.body)
+                    .foregroundStyle(.tint)
+                    .frame(width: 26)
             }
         }
+        .listRowInsets(.init(top: 0, leading: 20, bottom: 0, trailing: 20))
+        .listRowSeparatorTint(.white.opacity(0.12))
     }
 
     /// Replace the stack with the deep-linked destination. `folder([])` = a loose root track:
@@ -326,6 +342,57 @@ struct LibraryView: View {
             }
         }
     }
+}
+
+/// Library layout editor: reached from Library › ••• › Edit Library, above Settings.
+/// Reorders and removes the Library root's own sections — the collection rows, the folder tree,
+/// Recently Added — via `Pref.librarySections`. This replaced the Home editor that briefly lived
+/// on this menu; Home is edited on Home.
+struct LibraryLayoutEditor: View {
+    @AppStorage(Pref.librarySections) private var sectionsCSV = Pref.librarySectionsDefault
+    @Environment(\.dismiss) private var dismiss
+    @State private var ids: [String] = []
+
+    /// Everything the Library root can show, id → display name.
+    static var allSections: [(id: String, name: String)] {
+        CollectionKind.allCases.map { ($0.id, $0.rawValue) }
+            + [("folders", "Folders"), ("recentAdded", "Recently Added")]
+    }
+
+    private func name(_ id: String) -> String {
+        Self.allSections.first { $0.id == id }?.name ?? id
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("In Library") {
+                    ForEach(ids, id: \.self) { id in Text(name(id)) }
+                        .onMove { ids.move(fromOffsets: $0, toOffset: $1); save() }
+                        .onDelete { ids.remove(atOffsets: $0); save() }
+                }
+                Section("Add to Library") {
+                    ForEach(Self.allSections.filter { !ids.contains($0.id) }, id: \.id) { s in
+                        Button { ids.append(s.id); save() } label: {
+                            Label("Add \(s.name)", systemImage: "plus.circle.fill")
+                        }
+                    }
+                    // Locations belongs to the Library's layout, not Home's. Still
+                    // unbuilt — the Jellyfin/remote-sources shelf planned.
+                    Label("Locations — coming soon", systemImage: "map")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Edit Library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .themedTint()
+        .onAppear { ids = sectionsCSV.split(separator: ",").map(String.init) }
+    }
+
+    private func save() { sectionsCSV = ids.joined(separator: ",") }
 }
 
 /// Navigable folder path. A plain `[String]` can't be a `navigationDestination` value type without

@@ -34,6 +34,12 @@ enum Pref {
     static let homeSections = "home.sections"
     static let homeShelfSizes = "home.shelfSizes"   // "now:large,albums:small" — medium default
 
+    /// Library root layout: ordered, enabled-only ids, edited from Library › ••• › Edit Library.
+    /// Ids are the `CollectionKind` ids plus "folders" and "recentAdded" (the Library
+    /// menu's Edit is the LIBRARY's layout, not Home's).
+    static let librarySections = "library.sections"
+    static let librarySectionsDefault = "playlists,artists,albums,songs,favourites,folders,recentAdded"
+
     /// Lyrics fonts, every one with a real name and previewable. `id` is a system design
     /// keyword or a PostScript name (iOS built-ins — nothing bundled).
     static let lyricFonts: [(id: String, name: String)] = [
@@ -69,6 +75,7 @@ enum Pref {
         UserDefaults.standard.register(defaults: [
             sponsorBlock: true, lyricsSize: 22.0,
             homeSections: "now,playlists,albums,tracks",
+            librarySections: librarySectionsDefault,
             likeGlyph: "heart",
         ])
     }
