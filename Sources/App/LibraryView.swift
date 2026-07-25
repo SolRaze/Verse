@@ -931,13 +931,21 @@ struct InfoSheet: View {      // shared with the player's burger menu
     @EnvironmentObject var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State private var info: LibraryStore.FileInfo?
+    @State private var editing = false
     let item: LibraryItem
+
+    /// Read the store, not the captured value — an edit made from the button below has to show
+    /// up here without reopening the sheet (#6h).
+    private var live: LibraryItem { library.items.first { $0.id == item.id } ?? item }
 
     var body: some View {
         NavigationStack {
             List {
-                LabeledContent("Title", value: item.title)
-                if !item.artist.isEmpty { LabeledContent("Artist", value: item.artist) }
+                LabeledContent("Title", value: live.title)
+                if !live.artist.isEmpty { LabeledContent("Artist", value: live.artist) }
+                if !live.album.isEmpty { LabeledContent("Album", value: live.album) }
+                if let t = live.trackNumber { LabeledContent("Track", value: String(t)) }
+                if let d = live.discNumber { LabeledContent("Disc", value: String(d)) }
                 if let info {
                     LabeledContent("Where", value: info.folder)
                     LabeledContent("Name", value: info.location)
@@ -957,7 +965,14 @@ struct InfoSheet: View {      // shared with the player's burger menu
             }
             .navigationTitle("Info")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                // #6h: Info was view-only; the fields are editable from here now.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Edit") { editing = true }
+                }
+            }
+            .sheet(isPresented: $editing) { EditItemSheet(item: live) }
         }
         .themedTint()
         .task { info = await library.info(for: item) }
@@ -975,24 +990,47 @@ struct EditItemSheet: View {  // shared with the collection pages' hold menus
     @Environment(\.dismiss) private var dismiss
     @State var item: LibraryItem
 
+    /// Track/disc are Ints on the model but text in the form — an empty field has to mean "no
+    /// number", which a numeric binding can't express.
+    @State private var trackText = ""
+    @State private var discText = ""
+
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Title", text: $item.title)
-                TextField("Artist", text: $item.artist)
+                Section {
+                    TextField("Title", text: $item.title)
+                    TextField("Artist", text: $item.artist)
+                    TextField("Album", text: $item.album)
+                }
+                Section {
+                    TextField("Track number", text: $trackText).keyboardType(.numberPad)
+                    TextField("Disc number", text: $discText).keyboardType(.numberPad)
+                } footer: {
+                    Text("Leave a field blank to clear it.")
+                }
             }
             .navigationTitle("Edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { library.update(item); dismiss() }
+                    Button("Save") {
+                        item.trackNumber = Int(trackText.trimmingCharacters(in: .whitespaces))
+                        item.discNumber = Int(discText.trimmingCharacters(in: .whitespaces))
+                        library.update(item)
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.height(220)])
+        .presentationDetents([.medium])
         .themedTint()
+        .onAppear {
+            trackText = item.trackNumber.map(String.init) ?? ""
+            discText = item.discNumber.map(String.init) ?? ""
+        }
     }
 }

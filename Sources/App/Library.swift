@@ -562,6 +562,18 @@ final class LibraryStore: ObservableObject {
             album: albumName, artist: Self.commonArtist(groupItems))
     }
 
+    /// Finder free-text search (#6d): matches album title OR artist, so an artist name pivots to
+    /// that artist's albums rather than coming back empty.
+    func searchAlbums(query: String) async -> [MetadataScraper.AlbumCandidate] {
+        await MetadataScraper.searchReleases(query: query)
+    }
+
+    /// How many tracks the local folder holds — the finder's "only my track count" filter needs
+    /// it to spot the right pressing among deluxe/comp editions (#6e).
+    func trackCount(forAlbum albumName: String) -> Int {
+        items.filter { $0.albumKey == albumName }.count
+    }
+
     /// LRCLIB lyrics into the cache + `.lrc` sidecars. `force` clears negative markers first
     /// so "nothing found" tracks retry.
     private func lyricsPass(force: Bool) async {

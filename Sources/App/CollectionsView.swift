@@ -575,6 +575,62 @@ struct AlbumPage: View {
     }
 }
 
+/// Sort orders the finder search bar offers (#6e).
+enum FinderSort: String, CaseIterable, Identifiable {
+    case relevance = "Relevance", album = "Album", artist = "Artist", year = "Year"
+    var id: String { rawValue }
+
+    /// Relevance is MusicBrainz's own ranking, so it means "leave the order alone".
+    func apply(_ list: [MetadataScraper.AlbumCandidate]) -> [MetadataScraper.AlbumCandidate] {
+        switch self {
+        case .relevance: list
+        case .album: list.sorted { $0.album.localizedStandardCompare($1.album) == .orderedAscending }
+        case .artist: list.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
+        case .year: list.sorted { ($0.year ?? "") > ($1.year ?? "") }   // newest first, undated last
+        }
+    }
+}
+
+/// The finder sheets' search bar: pinned to the BOTTOM (#6f), free-text that pivots on an artist
+/// name (#6d), with sort and filter controls (#6e). Shared by Find Metadata, Find Artwork and the
+/// player's lyrics finder so all three behave identically.
+struct FinderSearchBar: View {
+    @Binding var query: String
+    @Binding var sort: FinderSort
+    @Binding var matchingOnly: Bool
+    /// Only the album finders can filter on track count; the lyrics finder has no folder to
+    /// compare against.
+    var showMatchFilter = true
+    var placeholder = "Search MusicBrainz"
+    let onSearch: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Menu {
+                Picker("Sort", selection: $sort) {
+                    ForEach(FinderSort.allCases) { Text($0.rawValue).tag($0) }
+                }
+                if showMatchFilter {
+                    Divider()
+                    Toggle("Only my track count", isOn: $matchingOnly)
+                }
+            } label: {
+                Image(systemName: matchingOnly
+                    ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .font(.body)
+            }
+            TextField(placeholder, text: $query)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .onSubmit(onSearch)
+            Button(action: onSearch) { Image(systemName: "magnifyingglass") }
+                .buttonStyle(.borderless)
+                .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.bar)
+    }
+}
+
 /// "Find better metadata" for one album: lists MusicBrainz release candidates so the user picks
 /// the right pressing (the auto pass takes the top hit; this is the manual override for wrong or
 /// missing matches). Applying pulls that release's tracklist + cover onto the whole folder.
@@ -586,29 +642,28 @@ struct AlbumFinderSheet: View {
     @State private var loading = true
     @State private var applying: String?
     @State private var query = ""
+    @State private var sort: FinderSort = .relevance
+    @State private var matchingOnly = false
+
+    /// Sort + filter applied to whatever the last search returned (#6e).
+    private var shown: [MetadataScraper.AlbumCandidate] {
+        let mine = library.trackCount(forAlbum: albumName)
+        return sort.apply(matchingOnly ? candidates.filter { $0.trackCount == mine } : candidates)
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                // Always-on search (#4): retype the query when the tag-seeded lookup misses.
-                Section {
-                    HStack {
-                        TextField("Search MusicBrainz", text: $query)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .onSubmit(runSearch)
-                        Button(action: runSearch) { Image(systemName: "magnifyingglass") }
-                            .buttonStyle(.borderless)
-                            .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                }
                 if loading {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowSeparator(.hidden)
-                } else if candidates.isEmpty {
+                } else if shown.isEmpty {
                     ContentUnavailableView("No matches", systemImage: "questionmark.circle",
-                                           description: Text("MusicBrainz had nothing for “\(query)”. Edit the search above and try again."))
+                                           description: Text(candidates.isEmpty
+                                               ? "MusicBrainz had nothing for “\(query)”. Edit the search below and try again."
+                                               : "Every match was filtered out. Turn off “Only my track count” below."))
                 }
-                ForEach(candidates) { c in
+                ForEach(shown) { c in
                     Button {
                         applying = c.id
                         Task {
@@ -634,6 +689,10 @@ struct AlbumFinderSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
+            .safeAreaInset(edge: .bottom) {
+                FinderSearchBar(query: $query, sort: $sort, matchingOnly: $matchingOnly,
+                                onSearch: runSearch)
+            }
         }
         .task {
             query = albumName
@@ -647,7 +706,8 @@ struct AlbumFinderSheet: View {
         guard !q.isEmpty else { return }
         loading = true
         Task {
-            candidates = await library.albumCandidates(for: q)
+            // Free-text goes through the pivoting search, not the tag-seeded one (#6d).
+            candidates = await library.searchAlbums(query: q)
             loading = false
         }
     }
@@ -659,34 +719,57 @@ struct AlbumArtworkFinderSheet: View {
     @EnvironmentObject var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     let albumName: String
-    @State private var covers: [(id: String, image: UIImage)] = []
+    /// The candidate is kept alongside its cover so sort and filter can work on real fields
+    /// rather than on the images (#6e).
+    @State private var covers: [(cand: MetadataScraper.AlbumCandidate, image: UIImage)] = []
     @State private var loading = true
     @State private var applying: String?
+    @State private var query = ""
+    @State private var sort: FinderSort = .relevance
+    @State private var matchingOnly = false
 
     private let cols = [GridItem(.adaptive(minimum: 140), spacing: 12)]
+
+    private var shown: [(cand: MetadataScraper.AlbumCandidate, image: UIImage)] {
+        let mine = library.trackCount(forAlbum: albumName)
+        let kept = matchingOnly ? covers.filter { $0.cand.trackCount == mine } : covers
+        let order = sort.apply(kept.map(\.cand)).map(\.id)
+        return kept.sorted { a, b in
+            (order.firstIndex(of: a.cand.id) ?? 0) < (order.firstIndex(of: b.cand.id) ?? 0)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 if loading {
                     ProgressView().padding(40)
-                } else if covers.isEmpty {
+                } else if shown.isEmpty {
                     ContentUnavailableView("No artwork found", systemImage: "photo",
-                                           description: Text("MusicBrainz / Cover Art Archive had no covers for “\(albumName)”."))
+                                           description: Text(covers.isEmpty
+                                               ? "MusicBrainz / Cover Art Archive had no covers for “\(query.isEmpty ? albumName : query)”."
+                                               : "Every cover was filtered out. Turn off “Only my track count” below."))
                         .padding(.top, 40)
                 } else {
                     LazyVGrid(columns: cols, spacing: 12) {
-                        ForEach(covers, id: \.id) { cover in
+                        ForEach(shown, id: \.cand.id) { cover in
                             Button {
-                                applying = cover.id
+                                applying = cover.cand.id
                                 Task {
                                     await library.applyAlbumArtwork(cover.image, to: albumName)
                                     dismiss()
                                 }
                             } label: {
-                                Image(uiImage: cover.image).resizable().aspectRatio(1, contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .overlay { if applying == cover.id { ProgressView().tint(.white) } }
+                                VStack(spacing: 4) {
+                                    Image(uiImage: cover.image).resizable().aspectRatio(1, contentMode: .fit)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .overlay { if applying == cover.cand.id { ProgressView().tint(.white) } }
+                                    // With an artist pivot in play the grid can hold covers from
+                                    // several releases, so each one has to say which it is.
+                                    Text(cover.cand.album).font(.caption2).lineLimit(1)
+                                    Text(cover.cand.detail).font(.caption2).foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
                             .buttonStyle(.plain)
                             .disabled(applying != nil)
@@ -700,14 +783,33 @@ struct AlbumArtworkFinderSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
+            .safeAreaInset(edge: .bottom) {
+                FinderSearchBar(query: $query, sort: $sort, matchingOnly: $matchingOnly,
+                                onSearch: runSearch)
+            }
         }
         .task {
-            for cand in await library.albumCandidates(for: albumName) {
-                if let img = await MetadataScraper.coverArt(mbid: cand.releaseMBID) {
-                    covers.append((cand.releaseMBID, img))
-                }
-            }
-            loading = false
+            query = albumName
+            await load(await library.albumCandidates(for: albumName))
         }
+    }
+
+    private func runSearch() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return }
+        loading = true
+        covers = []
+        Task { await load(await library.searchAlbums(query: q)) }
+    }
+
+    /// Covers arrive one at a time (one CAA hop each) and are appended as they land, so the grid
+    /// fills progressively instead of blocking on the slowest release.
+    private func load(_ cands: [MetadataScraper.AlbumCandidate]) async {
+        for cand in cands {
+            if let img = await MetadataScraper.coverArt(mbid: cand.releaseMBID) {
+                covers.append((cand, img))
+            }
+        }
+        loading = false
     }
 }

@@ -444,7 +444,9 @@ struct NowPlayingCard: View {
                              duration: player.duration) { player.seek(to: $0) }
                     .frame(height: 18)
                     .padding(.horizontal, 12).padding(.vertical, 5)
-                    .background(.white.opacity(0.08), in: Capsule())
+                    // Glass, matching the lyrics screen's wave pill — every wave scrubber in the
+                    // app reads the same (07-25).
+                    .glassEffect(.regular, in: Capsule())
             }
         }
         .task(id: player.current?.url) {

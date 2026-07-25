@@ -187,6 +187,22 @@ struct MetadataScraper {
         return parseCandidates(data)
     }
 
+    /// Free-text search for the finder sheets (#6d). The query is matched against the release
+    /// title OR the artist name, so typing an artist pivots to that artist's releases instead of
+    /// returning nothing — `albumCandidates` above ANDs the two and is title-led, which is right
+    /// for a tag-seeded lookup and wrong for a human typing "Kanye".
+    static func searchReleases(query: String, limit: Int = 12) async -> [AlbumCandidate] {
+        let q = query.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "\"", with: " ")
+        guard !q.isEmpty else { return [] }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        var comps = URLComponents(string: "https://musicbrainz.org/ws/2/release")!
+        comps.queryItems = [.init(name: "query", value: "release:\"\(q)\" OR artist:\"\(q)\""),
+                            .init(name: "fmt", value: "json"),
+                            .init(name: "limit", value: String(limit))]
+        guard let url = comps.url, let data = await get(url) else { return [] }
+        return parseCandidates(data)
+    }
+
     /// Full tracklist + front cover for one release. `wantCover` skips the CAA hop when not needed.
     static func albumDetail(mbid: String, wantCover: Bool = true)
         async -> (tracks: [TrackInfo], cover: UIImage?) {
