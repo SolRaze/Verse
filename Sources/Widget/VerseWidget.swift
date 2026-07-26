@@ -77,7 +77,7 @@ struct VerseWidget: Widget {
 
 struct LyricLiveActivity: Widget {
     /// Current line, or the song title only in a gap while PAUSED — during playback a gap between
-    /// lines (intro, instrumental) shows nothing rather than flashing the title (user request).
+    /// lines (intro, instrumental) shows nothing rather than flashing the title.
     private static func currentText(_ ctx: ActivityViewContext<LyricActivityAttributes>) -> String {
         if !ctx.state.current.isEmpty { return ctx.state.current }
         return ctx.state.isPlaying ? "" : ctx.attributes.title

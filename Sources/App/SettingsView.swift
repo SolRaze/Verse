@@ -125,7 +125,7 @@ struct SettingsView: View {
     @State private var wipAlert: String?
 
     /// Planned features (mirrors my planned list) — shown faded under "In the Works", grouped by the
-    /// surface they'll land on so the list reads by where it'll appear (2026-07-21 user request).
+    /// surface they'll land on so the list reads by where it'll appear.
     /// (iPod Mode graduated to a beta toggle in Appearance.)
     static let inTheWorks: [(area: String, items: [String])] = [
         ("Player", ["Stem Player (per-stem audio)", "Karaoke Word Timing"]),
@@ -303,7 +303,7 @@ struct SettingsView: View {
 }
 
 /// Everything about fetching + where metadata lives, moved off the main Settings list into one
-/// place (2026-07-21 user request): the online toggle, per-folder opt-out, the Fetch buttons,
+/// place: the online toggle, per-folder opt-out, the Fetch buttons,
 /// file-path visibility and the sidecar location.
 struct MetadataSettingsView: View {
     @EnvironmentObject var library: LibraryStore

@@ -26,6 +26,6 @@ final class SearchTests: XCTestCase {
 
         // The reported break: after x, the field stops reflecting input.
         field.typeText("xyz")
-        XCTAssertEqual(field.value as? String, "xyz", "field broke after clear (notes bug)")
+        XCTAssertEqual(field.value as? String, "xyz", "field broke after clear")
     }
 }

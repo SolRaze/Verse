@@ -111,7 +111,7 @@ struct LibraryItem: Codable, Identifiable, Hashable {
     }
 }
 
-/// Tags saved as `<file>.verse.json` beside the track (notes in-place metadata): the user's
+/// Tags saved as `<file>.verse.json` beside the track (metadata written in place): the user's
 /// edits live with the files, and a re-import reads them back instead of re-parsing filenames.
 struct SidecarTags: Codable {
     var title: String
@@ -1055,7 +1055,7 @@ final class LibraryStore: ObservableObject {
         }
     }
 
-    // MARK: - Sidecars (notes in-place metadata)
+    // MARK: - Sidecars (metadata written in place)
 
     /// Start write scope on the imported root that holds `item`, and hand back the resolved
     /// media URL. Falls back to the file's own scope (tag reads work; sibling writes may not —
@@ -1144,7 +1144,7 @@ final class LibraryStore: ObservableObject {
 
     /// Folders to SHOW while browsing: user-created only. Imported source trees stay internal
     /// (identity, sidecar scope, album fallback) — metadata organizes the library; disk layout
-    /// and filenames never display (2026-07-21 user request).
+    /// and filenames never display.
     func visibleFolders(at path: [String]) -> [String] {
         Set(customFolders.filter { $0.count > path.count && $0.starts(with: path) }
             .map { $0[path.count] })

@@ -426,7 +426,7 @@ struct AlbumPage: View {
     enum AlbumSheet: String, Identifiable { case metadata, artwork; var id: String { rawValue } }
 
     /// Tracks grouped by disc — one group (disc 0) when the album is single-disc, one per disc
-    /// otherwise, so multi-disc albums read as "Disc 1 / Disc 2" (user request).
+    /// otherwise, so multi-disc albums read as "Disc 1 / Disc 2".
     private var discGroups: [(disc: Int, tracks: [LibraryItem])] {
         let t = tracks
         let discs = Set(t.compactMap(\.discNumber))

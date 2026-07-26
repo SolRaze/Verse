@@ -16,7 +16,7 @@ enum CreateFeature: String, CaseIterable, Identifiable {
     var icon: String { switch self { case .ipod: "opticaldisc" } }
 
     /// The sizes this feature's deck may take, as (cols, rows) — nothing in between. Small-icon
-    /// features get the three sizes the user fixed: 1x1 square, 1x2 (one row, two
+    /// features get the three fixed sizes: 1x1 square, 1x2 (one row, two
     /// columns — the pill), 2x2. A feature that needs a bigger canvas declares its own list here
     /// as it lands, rather than everything becoming free-form again.
     var presets: [(cols: Int, rows: Int)] {
@@ -189,7 +189,7 @@ struct CreatePage: View {
 }
 
 /// The deck itself: a glass bubble with a rounded edge. A 1x1 tile is a rounded square showing
-/// just the glyph; anything larger uses the two-corner layout the user set — icon in
+/// just the glyph; anything larger uses the two-corner layout — icon in
 /// the top-left, description in the bottom-right. Widen it and the corner radius grows to a pill
 /// (Control-Center-style shapes).
 struct WidgetBubble: View {

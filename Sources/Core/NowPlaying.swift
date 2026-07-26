@@ -33,7 +33,7 @@ final class NowPlaying {
 
     /// "CarPlay Lyrics" in Settings: pushes the current line into the artist field, which every
     /// head unit updates reliably. (The old lyric-into-artwork renderer is gone — 2026-07-19,
-    /// user request; artwork is always the real cover now.)
+    /// artwork is always the real cover now.)
     var lyricsInTextFieldFallback: Bool {
         UserDefaults.standard.bool(forKey: Pref.carPlayTextFallback)
     }

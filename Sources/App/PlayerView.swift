@@ -226,7 +226,7 @@ private struct NowPlayingPane: View {
     }
 
     /// Apple Music's bottom row: lyrics, sleep timer, AirPlay, queue — plus Share, which used to
-    /// sit on its own row below. Plain glyphs, no glass (glass is the top button only).
+    /// sit on its own row below. Plain glyphs, no glass (note: glass is the top button only).
     private var bottomRow: some View {
         HStack {
             Button { withAnimation(.snappy) { showLyrics = true } } label: {
@@ -490,8 +490,7 @@ private struct LyricsScreen: View {
             HStack {
                 Color.clear.frame(width: 34, height: 34)
                 Spacer()
-                // .headline = the one title style used on inline bars app-wide (user request:
-                // bigger, uniform).
+                // .headline = the one title style used on inline bars app-wide.
                 Text(player.current?.title ?? "")
                     .font(.headline).lineLimit(1)
                 Spacer()
