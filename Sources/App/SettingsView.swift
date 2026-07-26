@@ -262,7 +262,7 @@ struct SettingsView: View {
                     Text("Clear Caches drops cached lyrics, artwork and waveforms — including remembered \"nothing found\" results. Export Library Backup shares one JSON with the whole library, playlists and folders (covers YouTube items, which have no files to carry sidecars).")
                 }
 
-                // Faded skeletons for what's planned — tap says so. Mirrors my planned list.
+                // Faded skeletons for what's planned — tap says so. Same planned list.
                 // One section per surface (Player / Library / Home / Import).
                 ForEach(Self.inTheWorks, id: \.area) { group in
                     Section {

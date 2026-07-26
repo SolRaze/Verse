@@ -378,7 +378,7 @@ struct LibraryLayoutEditor: View {
                         }
                     }
                     // Locations belongs to the Library's layout, not Home's. Still
-                    // unbuilt — the Jellyfin/remote-sources shelf planned.
+                    // unbuilt — the planned Jellyfin/remote-sources shelf.
                     Label("Locations — coming soon", systemImage: "map")
                         .foregroundStyle(.secondary)
                 }
