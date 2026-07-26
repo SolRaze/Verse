@@ -67,7 +67,7 @@ enum Pref {
 
     /// Accent swatches offered before the custom picker ("a group like the icon
     /// selection, and the colour of the square"). "" = stock white; Red = the Yeezus/Classic
-    /// tape, Violet = the exact Yandhi tape square. The rest are pastels (2026-07-21 request).
+    /// tape, Violet = the exact Yandhi tape square. The rest are pastels.
     static let accentPresets: [(hex: String, name: String)] = [
         ("", "White"), ("F0241C", "Red"), ("97479E", "Violet"),
         ("AEC6CF", "Blue"), ("77DD77", "Green"), ("FFB347", "Orange"), ("FFB6C1", "Pink"),
